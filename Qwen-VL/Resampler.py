@@ -139,3 +139,13 @@ class Resampler(nn.Module):
 
     def _repeat(self, query, N: int):
         return query.unsqueeze(1).repeat(1, N, 1)
+
+if __name__ == '__main__':
+    resampler = Resampler(
+        grid_size=14,
+        embed_dim=512,
+        num_heads=8,
+    )
+    x = torch.randn(3, 1024, 512)
+    y = resampler(x) # output_dim : [3, grid_size^2, embed_dim]
+    print(y.shape)
