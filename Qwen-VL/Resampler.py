@@ -94,9 +94,9 @@ class Resampler(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
 
-        self.pos_embed = nn.Parameter(
-            torch.from_numpy(get_2d_sincos_pos_embed(embed_dim, grid_size)).float()
-        ).requires_grad_(False)
+        # self.pos_embed = nn.Parameter(
+        #     torch.from_numpy(get_2d_sincos_pos_embed(embed_dim, grid_size)).float()
+        # ).requires_grad_(False)
 
         self.query = nn.Parameter(torch.zeros(self.num_queries, embed_dim))
         trunc_normal_(self.query, std=.02)
@@ -123,7 +123,7 @@ class Resampler(nn.Module):
 
     def forward(self, x, attn_mask=None):
 
-        pos_embed = get_abs_pos(self.pos_embed, x.size(1))
+        # pos_embed = get_abs_pos(self.pos_embed, x.size(1))
 
         x = self.kv_proj(x)
         x = self.ln_kv(x).permute(1, 0, 2)
@@ -131,8 +131,9 @@ class Resampler(nn.Module):
         N = x.shape[1]
         q = self.ln_q(self.query)
         out = self.attn(
-            self._repeat(q, N) + self.pos_embed.unsqueeze(1),
-            x + pos_embed.unsqueeze(1),
+            self._repeat(q, N),
+            # self._repeat(q, N) + self.pos_embed.unsqueeze(1),
+            # x + pos_embed.unsqueeze(1),
             x,
             attn_mask=attn_mask)[0]
         return out.permute(1, 0, 2)
