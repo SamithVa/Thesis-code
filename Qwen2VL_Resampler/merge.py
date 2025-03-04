@@ -92,9 +92,9 @@ def self_soft_matching(metric: torch.Tensor, r: int):
 
 # Test the function with random input
 if __name__ == "__main__":
-    batch_size, t, feature_dim, r = 1, 256, 512, 128
-    metric = torch.randn(batch_size, t, feature_dim)
+    t, feature_dim, r = 256, 512, 128
+    metric = torch.randn(t, feature_dim)
     merge_fn = self_soft_matching(metric, r)
-    test_tensor = torch.randn(batch_size, t, feature_dim)
+    test_tensor = torch.randn(t, feature_dim)
     merged_result = merge_fn(test_tensor)
     print("Merged Result:", merged_result.shape)

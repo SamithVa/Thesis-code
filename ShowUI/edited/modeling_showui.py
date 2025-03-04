@@ -1869,7 +1869,7 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
                     .to(inputs_embeds.device)
                 )
                 image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-                inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+                inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds) # replace the image_emb to inputs_embed
 
             if pixel_values_videos is not None:
                 pixel_values_videos = pixel_values_videos.type(self.visual.get_dtype())

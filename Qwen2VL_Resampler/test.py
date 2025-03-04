@@ -16,8 +16,8 @@ if __name__=="__main__":
             {
                 "type": "image",
                 "image": "./chrome.png",
-                "resized_height": 600,
-                "resized_width": 600,
+                "resized_height": 448,
+                "resized_width": 448,
             },
             {"type": "text", "text": "Describe this image."},
         ],
@@ -35,9 +35,11 @@ if __name__=="__main__":
         return_tensors="pt",
     )
     inputs = inputs.to(device)
-    # print(inputs)
+    # print(inputs['input_ids'].shape) # 
+    # # print(inputs)
     config = Qwen2VLConfig.from_pretrained(model_path)
     print(config.vision_config)
+    vision_config = config.vision_config
     vit = Qwen2VisionTransformerPretrainedModel(config.vision_config).to(device)
-    visual_tokens = vit(inputs['pixel_values'], grid_thw=inputs['image_grid_thw'])
+    visual_tokens = vit(inputs['pixel_values'], grid_thw=inputs['image_grid_thw']) # TODO input['pixel_values'] shape is 2d tensor [seq_len, emb_dim] not 3d like in Qwen-VL [batch_size, seq_len, emb_dim]
     print(visual_tokens.shape)

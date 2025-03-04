@@ -394,7 +394,7 @@ class VisionSdpaAttention(nn.Module):
         rotary_pos_emb: Optional[torch.Tensor] = None,
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> torch.Tensor:
-        seq_length = hidden_states.shape[0]
+        seq_length = hidden_states.shape[0] # 2d tensor, [seq_len, emb_dim]
         q, k, v = self.qkv(hidden_states).reshape(seq_length, 3, self.num_heads, -1).permute(1, 0, 2, 3).unbind(0)
         if position_embeddings is None:
             logger.warning_once(
@@ -1040,9 +1040,10 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
             else:
                 hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, position_embeddings=position_embeddings)
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
-        print(merge.shape)
-        output = self.resampler(torch.unsqueeze(merge, dim=-1), r=512)
-        return output
+        # merge_3d = torch.unsqueeze(merge, dim=0)
+        # print(merge_3d.shape)
+        # output = self.resampler(merge_3d, r=int(merge_3d.shape[1] * 0.8))
+        return merge
 
 
 @add_start_docstrings(
