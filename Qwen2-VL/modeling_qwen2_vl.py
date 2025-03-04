@@ -29,14 +29,14 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch.nn import CrossEntropyLoss, LayerNorm
 
-from ...activations import ACT2FN
-from ...cache_utils import Cache, DynamicCache, SlidingWindowCache, StaticCache
-from ...generation import GenerationMixin
-from ...modeling_attn_mask_utils import AttentionMaskConverter
-from ...modeling_outputs import BaseModelOutputWithPast, ModelOutput
-from ...modeling_rope_utils import ROPE_INIT_FUNCTIONS
-from ...modeling_utils import PreTrainedModel
-from ...utils import (
+from transformers.activations import ACT2FN
+from transformers.cache_utils import Cache, DynamicCache, SlidingWindowCache, StaticCache
+from transformers.generation import GenerationMixin
+from transformers.modeling_attn_mask_utils import AttentionMaskConverter
+from transformers.modeling_outputs import BaseModelOutputWithPast, ModelOutput
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+from transformers.modeling_utils import PreTrainedModel
+from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     is_flash_attn_2_available,
@@ -50,7 +50,7 @@ from .configuration_qwen2_vl import Qwen2VLConfig, Qwen2VLVisionConfig
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_varlen_func
 
-    from ...modeling_flash_attention_utils import _flash_attention_forward
+    from transformers.modeling_flash_attention_utils import _flash_attention_forward
 else:
     flash_attn_varlen_func = None
 
