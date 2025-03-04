@@ -4,15 +4,16 @@ from torch import einsum
 
 import torch.nn as nn
 import torch
+import math
 
 # similar to torch layernorm but in higher precision fp32
-class LayerNorm(nn.LayerNorm):
-    """Subclass torch's LayerNorm to handle fp16."""
-
-    def forward(self, x: torch.Tensor):
-        orig_type = x.dtype
-        ret = super().forward(x.type(torch.float32))
-        return ret.type(orig_type)
+# class LayerNorm(nn.LayerNorm):
+#     """Subclass torch's LayerNorm to handle fp16."""
+#
+#     def forward(self, x: torch.Tensor):
+#         orig_type = x.dtype
+#         ret = super().forward(x.type(torch.float32))
+#         return ret.type(orig_type)
 
 #Resample model
 from einops import rearrange, repeat
@@ -58,7 +59,7 @@ class FeedForward(nn.Module):
         x = self.scale*x
         return x
 
-# fc -> layer_norm
+# fc + layer_norm
 class Block(nn.Module):
     def __init__(self, input_size,output_size):
         super().__init__()
@@ -114,13 +115,13 @@ class PerceiverResampler(nn.Module):
         depth=1,
         dim_head=128,
         heads=8,
-        visual_tokens_num=512,
-        ff_mult=4,
+        # visual_tokens_num=512,
+        # ff_mult=4,
     ):
         super().__init__()
 
         # self.downsample = nn.Linear(out_dim,in_dim,bias=False)
-        self.downsample = nn.Linear(in_dim, out_dim, bias=False)
+        self.linear = nn.Linear(in_dim, out_dim, bias=False)
 
         self.layers = nn.ModuleList([])
 
@@ -135,19 +136,21 @@ class PerceiverResampler(nn.Module):
             )
 
     def forward(self, x,r=0):
-        # B,L,C = x.shape # batch_size, seq_length, hidden_size
 
-        merge = self_soft_matching(x, r)  # Replace with your features and r value
-        latents = merge(x)        
-        down_x = self.downsample(x)
-        down_latent = self.downsample(latents)
-        for attn, ff in self.layers:
-            down_latent = attn(down_x, down_latent) 
-            latents = ff(down_latent) + latents
+        merge = self_soft_matching(x, r)  # x [bsz, seq_len, in_dim]
+        latents = merge(x)  # [bsz, r, in_dim]
+        down_x = self.linear(x) # [bsz, seq, out_dim]
+        down_latent = self.linear(latents)  # [bsz, r, out_dim]
+        for attn, ff in self.layers: # cross attention
+            down_latent = attn(down_x, down_latent)  # [bsz, r, out_dim], q: latent | key, value: down_x
+            latents = ff(down_latent) + latents #
         return latents
 
 if __name__ == "__main__":
-    perceiver = PerceiverResampler()
-    x = torch.randn(2,256,1024)
-    output = perceiver(x)
+    bsz, seq_len, emd_dim = 2, 1024, 4096
+    out_dim = 4096
+    perceiver = PerceiverResampler(in_dim=emd_dim, out_dim=out_dim)
+    x = torch.randn(bsz, seq_len, emd_dim)
+    output = perceiver(x, r=512)
+    print(output.shape)
 
