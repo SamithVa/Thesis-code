@@ -98,21 +98,6 @@ def make_batched_videos(videos) -> List[VideoInput]:
 
     raise ValueError(f"Could not make batched video from {videos}")
 
-# Implement Union-Find operator for constructing ui patches
-class UnionFind:
-    def __init__(self, size):
-        self.parent = np.arange(size)
-
-    def find(self, x):
-        if self.parent[x] != x:
-            self.parent[x] = self.find(self.parent[x])  # Path compression
-        return self.parent[x]
-
-    def union(self, x, y):
-        px = self.find(x)
-        py = self.find(y)
-        if px != py:
-            self.parent[py] = px
 
 def smart_resize(
     height: int, width: int, factor: int = 28, min_pixels: int = 56 * 56, max_pixels: int = 14 * 14 * 4 * 1280
@@ -143,6 +128,46 @@ def smart_resize(
         h_bar = math.ceil(height * beta / factor) * factor
         w_bar = math.ceil(width * beta / factor) * factor
     return h_bar, w_bar
+
+
+# Implement Union-Find operator for constructing ui patches
+class UnionFind:
+    def __init__(self, size):
+        """
+        Initializes a Union-Find (Disjoint Set) data structure.
+
+        :param size: The number of elements in the set.
+        - `parent` array keeps track of the parent of each element.
+        - Initially, each element is its own parent, forming individual sets.
+        """
+        self.parent = np.arange(size)
+
+    def find(self, x):
+        """
+        Finds the representative (root) of the set containing `x`.
+
+        :param x: The element to find the root for.
+        :return: The root representative of `x`.
+        - Uses path compression to flatten the tree structure,
+          making future queries faster by pointing nodes directly to the root.
+        """
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])  # Path compression
+        return self.parent[x]
+
+    def union(self, x, y):
+        """
+        Merges the sets containing `x` and `y`.
+
+        :param x: First element.
+        :param y: Second element.
+        - Uses `find` to determine the root representatives of `x` and `y`.
+        - If the roots are different, merges them by setting `y`'s root to `x`'s root.
+        """
+        px = self.find(x)
+        py = self.find(y)
+        if px != py:
+            self.parent[py] = px
 
 
 class ShowUIImageProcessor(BaseImageProcessor):
@@ -230,8 +255,9 @@ class ShowUIImageProcessor(BaseImageProcessor):
                         grid_h_half, grid_w_half, 
                         uigraph_threshold,
                         channel):
-        num_patches = grid_t * grid_h_half * grid_w_half
-        uf = UnionFind(num_patches)
+        num_patches = grid_t * grid_h_half * grid_w_half # [1, 60, 60]
+        
+        uf = UnionFind(num_patches) # create patches
         
         def idx(t, i, j):
             return t * grid_h_half * grid_w_half + i * grid_w_half + j
