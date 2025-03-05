@@ -1041,9 +1041,11 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
             else:
                 hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, position_embeddings=position_embeddings)
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
-        # merge_3d = torch.unsqueeze(merge, dim=0)
+        merge_3d = torch.unsqueeze(merge, dim=0)
         # print(merge_3d.shape)
-        # output = self.resampler(merge_3d, r=int(merge_3d.shape[1] * 0.8))
+        output = self.resampler(merge_3d, r=int(merge_3d.shape[1] * 0.5))
+        # print(f'output {output.shape}')
+        output = torch.squeeze(output, dim=0)
         return merge
 
 
