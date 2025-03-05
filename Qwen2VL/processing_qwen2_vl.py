@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2024 The Show Lab, National University of Singapore and the HuggingFace Inc. team. All rights reserved.
+# Copyright 2024 The Qwen team, Alibaba Group and the HuggingFace Inc. team. All rights reserved.
 #
 # This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
 # and OPT implementations in this library. It has been modified from its
@@ -18,20 +18,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Processor class for ShowUI, inherited from Qwen2-VL.
+Processor class for Qwen2-VL.
 """
-import pdb
-import torch
+
 from typing import List, Union
 
-from transformers.feature_extraction_utils import BatchFeature
-from transformers.image_utils import ImageInput, VideoInput
-from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
-from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
-from transformers.utils import logging
+from ...feature_extraction_utils import BatchFeature
+from ...image_utils import ImageInput, VideoInput
+from ...processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
+from ...tokenization_utils_base import PreTokenizedInput, TextInput
+from ...utils import logging
 
-from image_processing_showui import ShowUIImageProcessor
-from utils import get_select_mask
 
 logger = logging.get_logger(__name__)
 
@@ -44,13 +41,13 @@ class Qwen2VLProcessorKwargs(ProcessingKwargs, total=False):
     }
 
 
-class ShowUIProcessor(ProcessorMixin):
+class Qwen2VLProcessor(ProcessorMixin):
     r"""
-    Constructs a ShowUI processor which wraps a ShowUI image processor and a Qwen2 tokenizer into a single processor.
-    [`Qwen2VLProcessor`] offers all the functionalities of [`ShowUIImageProcessor`] and [`Qwen2TokenizerFast`]. See the
+    Constructs a Qwen2-VL processor which wraps a Qwen2-VL image processor and a Qwen2 tokenizer into a single processor.
+    [`Qwen2VLProcessor`] offers all the functionalities of [`Qwen2VLImageProcessor`] and [`Qwen2TokenizerFast`]. See the
     [`~Qwen2VLProcessor.__call__`] and [`~Qwen2VLProcessor.decode`] for more information.
     Args:
-        image_processor ([`ShowUIImageProcessor`], *optional*):
+        image_processor ([`Qwen2VLImageProcessor`], *optional*):
             The image processor is a required input.
         tokenizer ([`Qwen2TokenizerFast`], *optional*):
             The tokenizer is a required input.
@@ -60,41 +57,26 @@ class ShowUIProcessor(ProcessorMixin):
 
     attributes = ["image_processor", "tokenizer"]
     valid_kwargs = ["chat_template"]
-    # inherited from Qwen2-VL.
-    image_processor_class = "Qwen2VLImageProcessor"
+    image_processor_class = "AutoImageProcessor"
     tokenizer_class = ("Qwen2Tokenizer", "Qwen2TokenizerFast")
 
     def __init__(self, image_processor=None, tokenizer=None, chat_template=None, **kwargs):
         self.image_token = "<|image_pad|>" if not hasattr(tokenizer, "image_token") else tokenizer.image_token
         self.video_token = "<|video_pad|>" if not hasattr(tokenizer, "video_token") else tokenizer.video_token
         super().__init__(image_processor, tokenizer, chat_template=chat_template)
-        # inherited from Qwen2-VL.        
-        self.image_processor = ShowUIImageProcessor(**vars(image_processor))
-        ### ShowUI preprocessor options
-        # Screenshot -> Graph
-        self.uigraph_train = kwargs.get("uigraph_train", True)      # Enable ui graph during training
-        self.uigraph_test = kwargs.get("uigraph_test", False)       # Enable ui graph during inference
-        self.uigraph_diff = kwargs.get("uigraph_diff", 1)           # Pixel difference used for constructing ui graph
-        self.uigraph_rand = kwargs.get("uigraph_rand", False)       # Enable random graph construction 
-        # Graph -> Mask
-        self.uimask_pre = kwargs.get("uimask_pre", False)           # Prebuild patch selection mask in the preprocessor (not in model layers)
-        self.uimask_ratio = kwargs.get("uimask_ratio", 0)           # Specify the percentage of patch tokens to skip per component
-        self.uimask_rand = kwargs.get("uimask_rand", False)         # Enable random token selection instead of uniform selection
 
     def __call__(
         self,
         images: ImageInput = None,
         text: Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]] = None,
         videos: VideoInput = None,
-        vis_dir: str = None,
-        training = False,
         **kwargs: Unpack[Qwen2VLProcessorKwargs],
     ) -> BatchFeature:
         """
         Main method to prepare for the model one or several sequences(s) and image(s). This method forwards the `text`
         and `kwargs` arguments to Qwen2TokenizerFast's [`~Qwen2TokenizerFast.__call__`] if `text` is not `None` to encode
         the text. To prepare the vision inputs, this method forwards the `vision_infos` and `kwrags` arguments to
-        ShowUIImageProcessor's [`~ShowUIImageProcessor.__call__`] if `vision_infos` is not `None`.
+        Qwen2VLImageProcessor's [`~Qwen2VLImageProcessor.__call__`] if `vision_infos` is not `None`.
 
         Args:
             images (`PIL.Image.Image`, `np.ndarray`, `torch.Tensor`, `List[PIL.Image.Image]`, `List[np.ndarray]`, `List[torch.Tensor]`):
@@ -107,8 +89,6 @@ class ShowUIProcessor(ProcessorMixin):
             videos (`np.ndarray`, `torch.Tensor`, `List[np.ndarray]`, `List[torch.Tensor]`):
                 The image or batch of videos to be prepared. Each video can be a 4D NumPy array or PyTorch
                 tensor, or a nested list of 3D frames. Both channels-first and channels-last formats are supported.
-            vis_dir (`str`, *optional*, defaults to `None`):
-                If build, the path to store the image with ui graph visualization.
             return_tensors (`str` or [`~utils.TensorType`], *optional*):
                 If set, will return tensors of a particular framework. Acceptable values are:
                 - `'tf'`: Return TensorFlow `tf.constant` objects.
@@ -128,30 +108,17 @@ class ShowUIProcessor(ProcessorMixin):
             - **image_grid_thw** -- List of image 3D grid in LLM. Returned when `images` is not `None`.
             - **video_grid_thw** -- List of video 3D grid in LLM. Returned when `videos` is not `None`.
         """
-        # Enable ui graph or not
-        if training:
-            uigraph_use = self.uigraph_train
-        else:
-            uigraph_use = self.uigraph_test
-
         output_kwargs = self._merge_kwargs(
             Qwen2VLProcessorKwargs,
             tokenizer_init_kwargs=self.tokenizer.init_kwargs,
             **kwargs,
         )
         if images is not None:
-            image_inputs = self.image_processor(images=images, videos=None, 
-                                                uigraph_use=uigraph_use, 
-                                                uigraph_diff=self.uigraph_diff, 
-                                                uigraph_rand=self.uigraph_rand, 
-                                                vis_dir=vis_dir,
-                                                **output_kwargs["images_kwargs"])
+            image_inputs = self.image_processor(images=images, videos=None, **output_kwargs["images_kwargs"])
             image_grid_thw = image_inputs["image_grid_thw"]
-            patch_assign_len = image_inputs["patch_assign_len"]
         else:
             image_inputs = {}
             image_grid_thw = None
-            patch_assign_len = None
 
         if videos is not None:
             videos_inputs = self.image_processor(images=None, videos=videos, **output_kwargs["videos_kwargs"])
@@ -187,25 +154,6 @@ class ShowUIProcessor(ProcessorMixin):
 
         text_inputs = self.tokenizer(text, **output_kwargs["text_kwargs"])
 
-        # ui graph
-        num_img = len(image_inputs['patch_assign_len'])
-        cur_img_idx = 0
-        pre_start = 0
-
-        # patch_pos indicates the position of visual patch in the full input seq
-        text_inputs['patch_pos'] = torch.zeros_like(text_inputs['input_ids']) -1
-        for i in range(len(text_inputs['input_ids'][0])):
-            # assume here is 1 x L
-            if text_inputs['input_ids'][0, i] == 151652:   # <|vision_start|> in Qwen2VL vocabulary
-                cur_img_len = image_inputs['image_grid_thw'][cur_img_idx].prod() // merge_length
-                text_inputs['patch_pos'][0, i+1: i+1+cur_img_len] = image_inputs['patch_assign'][pre_start: pre_start+cur_img_len]
-                cur_img_idx += 1
-                pre_start += cur_img_len
-        
-        if self.uimask_pre:
-            text_inputs['select_mask'] = get_select_mask(text_inputs['patch_pos'][0], 
-                                                        skip_ratio=self.uimask_ratio, 
-                                                        rand=(training and self.uimask_rand)).unsqueeze(0)
         return BatchFeature(data={**text_inputs, **image_inputs, **videos_inputs})
 
     def batch_decode(self, *args, **kwargs):
@@ -222,7 +170,9 @@ class ShowUIProcessor(ProcessorMixin):
         """
         return self.tokenizer.decode(*args, **kwargs)
 
-    def post_process_image_text_to_text(self, generated_outputs):
+    def post_process_image_text_to_text(
+        self, generated_outputs, skip_special_tokens=True, clean_up_tokenization_spaces=False, **kwargs
+    ):
         """
         Post-process the output of the model to decode the text.
 
@@ -230,12 +180,21 @@ class ShowUIProcessor(ProcessorMixin):
             generated_outputs (`torch.Tensor` or `np.ndarray`):
                 The output of the model `generate` function. The output is expected to be a tensor of shape `(batch_size, sequence_length)`
                 or `(sequence_length,)`.
+            skip_special_tokens (`bool`, *optional*, defaults to `True`):
+                Whether or not to remove special tokens in the output. Argument passed to the tokenizer's `batch_decode` method.
+            Clean_up_tokenization_spaces (`bool`, *optional*, defaults to `False`):
+                Whether or not to clean up the tokenization spaces. Argument passed to the tokenizer's `batch_decode` method.
+            **kwargs:
+                Additional arguments to be passed to the tokenizer's `batch_decode method`.
 
         Returns:
             `List[str]`: The decoded text.
         """
         return self.tokenizer.batch_decode(
-            generated_outputs, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            generated_outputs,
+            skip_special_tokens=skip_special_tokens,
+            clean_up_tokenization_spaces=clean_up_tokenization_spaces,
+            **kwargs,
         )
 
     @property
@@ -245,8 +204,4 @@ class ShowUIProcessor(ProcessorMixin):
         return list(dict.fromkeys(tokenizer_input_names + image_processor_input_names))
 
 
-if __name__=="__main__":
-    image_processor = ShowUIImageProcessor()
-    image = torch.rand([3, 448, 448])
-    img_emb = image_processor.preprocess([image], videos=None)
-    print(img_emb)
+__all__ = ["Qwen2VLProcessor"]
