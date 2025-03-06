@@ -297,25 +297,71 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         return uigraph_assign
 
     def _vis_uigraph(self, uigraph_assign, image_size, patch_size, image):
-        resized_height, resized_width = image_size[0]
-        uigraph_assign = uigraph_assign[0]
+        """
+        Visualize UI Graph
 
+        Returns:
+            PIL.Image
+        """
+        resized_height, resized_width = image_size[0]
+
+        uigraph_assign = uigraph_assign[0] # Shape [# visual_patches], e.g [0, 0, 1, 1, ..., N, N] where N is total number of ui components
+        
         upscaled_uigraph_assign = np.repeat(np.repeat(uigraph_assign, patch_size, axis=0), patch_size, axis=1)
+
         upscaled_uigraph_assign = upscaled_uigraph_assign[:resized_height, :resized_width]
 
         if isinstance(image, PIL.Image.Image):
             image = np.array(image)
 
-        if image.shape[0] in [1, 3]:  # Assuming grayscale or RGB image
+        # Assuming grayscale or RGB image
+        if image.shape[0] in [1, 3]:  
             image = image.transpose(1, 2, 0)
         elif image.shape[2] in [1, 3]:
             pass
         else:
             raise ValueError("Unexpected image shape: {}".format(image.shape))
 
-        boundaries_image = mark_boundaries(image, upscaled_uigraph_assign, color=(1, 0.4, 0.4))
+        boundaries_image = mark_boundaries(image, upscaled_uigraph_assign, color=(0.4, 1, 0.4))
         boundaries_image = (boundaries_image * 255).astype(np.uint8)
-        return Image.fromarray(boundaries_image)
+
+        import cv2
+        # Convert to OpenCV format (BGR)
+        annotated_image = cv2.cvtColor(boundaries_image, cv2.COLOR_RGB2BGR)
+
+        unique_components = np.unique(uigraph_assign)
+        # print(unique_components)
+        
+        for comp_id in unique_components:
+            # if comp_id == 0:  # Skip background
+            #     continue
+
+            # Find component coordinates
+            component_mask = (uigraph_assign == comp_id)
+            y_indices, x_indices = np.where(component_mask)
+            # print(y_indices, x_indices)
+
+            if len(y_indices) > 0 and len(x_indices) > 0:
+                # Compute centroid of the bounding box
+                # print(x_indices, y_indices)
+                min_x, max_x = np.min(x_indices), np.max(x_indices)
+                min_y, max_y = np.min(y_indices), np.max(y_indices)
+                center_x = (min_x + max_x) // 2 * patch_size
+                center_y = (min_y + max_y) // 2 * patch_size
+                # Draw number on image
+                cv2.putText(
+                    annotated_image, 
+                    str(comp_id), 
+                    (center_x + 7, center_y + 14), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.3,  # Font scale
+                    (255, 0, 0),  # Blue color
+                    1  # Thickness
+                )
+
+        # Convert back to PIL Image
+        return Image.fromarray(cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB))
+        # return Image.fromarray(boundaries_image)
     
     def _preprocess(
         self,
@@ -461,7 +507,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
             grid_t * grid_h * grid_w, channel * self.temporal_patch_size * self.patch_size * self.patch_size
         )
 
-        print(uigraph_assign.shape)
+        # print(uigraph_assign.shape)
 
         return flatten_patches, (grid_t, grid_h, grid_w), uigraph_assign, processed_resize
 
