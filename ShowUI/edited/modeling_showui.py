@@ -50,8 +50,8 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from .configuration_showui import Qwen2VLConfig, Qwen2VLVisionConfig
-from .utils import get_select_mask
+from configuration_showui import Qwen2VLConfig, Qwen2VLVisionConfig
+from utils import get_select_mask
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_varlen_func

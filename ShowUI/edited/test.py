@@ -1,8 +1,9 @@
 # from modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel, Qwen2VLForConditionalGeneration
 # from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
-from modeling_
+from modeling_showui import ShowUIForConditionalGeneration
+from processing_showui import ShowUIProcessor
 # from transformers import AutoProcessor
-from configuration_qwen2_vl import Qwen2VLConfig
+from configuration_showui import Qwen2VLConfig
 from qwen_vl_utils import process_vision_info
 import time 
 
@@ -10,8 +11,18 @@ if __name__=="__main__":
 
     model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
     device = 'cuda'
-    processor = Qwen2VLProcessor.from_pretrained(
-        model_path
+    uigraph_train = True        # Enable ui graph during training
+    uigraph_test = True         # Enable ui graph during inference
+    uigraph_diff = 1            # Pixel difference used for constructing ui graph
+    uigraph_rand = False        # Enable random graph construction 
+    # 2. Graph -> Mask 
+    uimask_pre = True           # Prebuild patch selection mask in the preprocessor (not in model layers) for efficiency
+    uimask_ratio = 0.5          # Specify the percentage of patch tokens to skip per component
+    uimask_rand = False         # Enable random token selection instead of uniform selection
+    processor = ShowUIProcessor.from_pretrained(
+        model_path, 
+        uigraph_train=uigraph_train, uigraph_test=uigraph_test, uigraph_diff=uigraph_diff, uigraph_rand=uigraph_rand,
+        uimask_pre=True, uimask_ratio=uimask_ratio, uimask_rand=uimask_rand,
     )
     messages = [
     {
@@ -20,8 +31,8 @@ if __name__=="__main__":
             {
                 "type": "image",
                 "image": "./chrome.png",
-                "resized_height": 28 * 30,
-                "resized_width": 28 * 30,
+                # "resized_height": 28 * 30,
+                # "resized_width": 28 * 30,
             },
             {"type": "text", "text": "Describe this image."},
         ],
@@ -40,6 +51,7 @@ if __name__=="__main__":
     )
     inputs = inputs.to(device)
     # print(inputs)
+    # print(inputs)
     # print(inputs['input_ids'].shape) # 
     # # print(inputs)
     # config = Qwen2VLConfig.from_pretrained(model_path)
@@ -49,18 +61,18 @@ if __name__=="__main__":
     # visual_tokens = vit(inputs['pixel_values'], grid_thw=inputs['image_grid_thw']) # TODO input['pixel_values'] shape is 2d tensor [seq_len, emb_dim] not 3d like in Qwen-VL [batch_size, seq_len, emb_dim]
     # print(visual_tokens.shape)
 
-    model = Qwen2VLForConditionalGeneration.from_pretrained(
-        model_path,
-    ).to(device).eval()
-    print(model)
-    start_time = time.time()
-    generated_ids = model.generate(**inputs, max_new_tokens=128)
-    elapsed_time = time.time() - start_time
-    print(f'elased_time : {elapsed_time}')
-    generated_ids_trimmed = [
-        out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-    ]
-    output_text = processor.batch_decode(
-        generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
-    )
-    print(output_text)
+    # model = ShowUIForConditionalGeneration.from_pretrained(
+    #     model_path,
+    # ).to(device).eval()
+
+    # start_time = time.time()
+    # generated_ids = model.generate(**inputs, max_new_tokens=128)
+    # elapsed_time = time.time() - start_time
+    # print(f'elased_time : {elapsed_time}')
+    # generated_ids_trimmed = [
+    #     out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+    # ]
+    # output_text = processor.batch_decode(
+    #     generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+    # )
+    # print(output_text)

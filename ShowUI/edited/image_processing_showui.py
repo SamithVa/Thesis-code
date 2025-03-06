@@ -257,9 +257,14 @@ class ShowUIImageProcessor(BaseImageProcessor):
                         channel):
         num_patches = grid_t * grid_h_half * grid_w_half # [1, 60, 60]
         
-        uf = UnionFind(num_patches) # create patches
+        uf = UnionFind(num_patches) # initialize UI graph
         
         def idx(t, i, j):
+            """
+            - t * grid_h_half * grid_w_half: current time
+            - i * grid_w_half: current row
+            - j: column offset in current row
+            """
             return t * grid_h_half * grid_w_half + i * grid_w_half + j
 
         # Compare adjacent patches based on the threshold
@@ -275,7 +280,7 @@ class ShowUIImageProcessor(BaseImageProcessor):
                         # Compute the difference between the patches
                         diff = np.linalg.norm(current_patch - right_patch)
                         if diff < uigraph_threshold:
-                            uf.union(current_idx, idx(t, i, j + 1))
+                            uf.union(current_idx, idx(t, i, j + 1)) 
 
                     # Compare with bottom neighbor
                     if i + 1 < grid_h_half:
@@ -284,7 +289,8 @@ class ShowUIImageProcessor(BaseImageProcessor):
                         diff = np.linalg.norm(current_patch - bottom_patch)
                         if diff < uigraph_threshold:
                             uf.union(current_idx, idx(t, i + 1, j))
-
+                            
+        # Flatten and encode the Union-Find assignments
         uigraph_assign_flat = np.array([uf.find(x) for x in range(num_patches)])
         le = LabelEncoder()
         uigraph_assign_flat = le.fit_transform(uigraph_assign_flat)
@@ -444,17 +450,19 @@ class ShowUIImageProcessor(BaseImageProcessor):
         )
         patches = patches.transpose(0, 3, 6, 4, 7, 2, 1, 5, 8)
 
-        # showui's ui graph construction
+        # use ui graph construction
         if uigraph_use:
             uigraph_assign = self._build_uigraph(patches=patches,
                                                 grid_t=grid_t, grid_h=grid_h, grid_w=grid_w,
                                                 grid_h_half=grid_h_half, grid_w_half=grid_w_half, 
                                                 uigraph_threshold=uigraph_diff,
-                                                channel=channel)
+                                                channel=channel) # flatten patches,  [0, 1, 1, 2, ..., n, n] |  shape [# patches]
         
         flatten_patches = patches.reshape(
             grid_t * grid_h * grid_w, channel * self.temporal_patch_size * self.patch_size * self.patch_size
         )
+
+        print(uigraph_assign.shape)
 
         return flatten_patches, (grid_t, grid_h, grid_w), uigraph_assign, processed_resize
 

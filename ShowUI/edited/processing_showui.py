@@ -56,6 +56,27 @@ class ShowUIProcessor(ProcessorMixin):
             The tokenizer is a required input.
         chat_template (`str`, *optional*): A Jinja template which will be used to convert lists of messages
             in a chat into a tokenizable string.
+    Returns:
+        tuple: 
+            - image_grid_thw : Shape `[batch_size, img_height // patch_size // merge_size, img_width // patch_size // merge_size]`
+            Example : `[[  1,  78, 138]]`
+
+            - patch_pos : Shape `[batch_size, sequence_length]`.  
+            Example: `[[-1, -1, 0, 0, 1, 2, ..., n, n, -1, -1]]`
+                - `-1`: Represents a text token.
+                - `0 -> n`: Represents UI graph component indices.
+
+            - patch_assign : Shape `[batch_size, visual_seq_len]`, Only visual tokens.  
+            Example: `[[0,  1,  2,  3,  4,  5,  6,  6,  6,  6,  6,  7,  8,  9, 10, 10, 10, 10, 10, 10, ..., n]]]`
+                - `0 -> n`: Represents UI graph component indices.
+            
+            - patch_assign_len : Shape `[batch_size]`, Number of total UI Graph Components.
+            Example: `[257]` , total of 257 unique components
+
+            - select_mask : Shape `[batch_size, sequence_length]`.  
+            Example: `[[True, True, False, ..., True, True]]`
+                - `True`: Selected (all text tokens are selected by default).
+                - `False`: Not selected.
     """
 
     attributes = ["image_processor", "tokenizer"]
@@ -73,12 +94,12 @@ class ShowUIProcessor(ProcessorMixin):
         ### ShowUI preprocessor options
         # Screenshot -> Graph
         self.uigraph_train = kwargs.get("uigraph_train", True)      # Enable ui graph during training
-        self.uigraph_test = kwargs.get("uigraph_test", False)       # Enable ui graph during inference
+        self.uigraph_test = kwargs.get("uigraph_test", True)       # Enable ui graph during inference
         self.uigraph_diff = kwargs.get("uigraph_diff", 1)           # Pixel difference used for constructing ui graph
         self.uigraph_rand = kwargs.get("uigraph_rand", False)       # Enable random graph construction 
         # Graph -> Mask
-        self.uimask_pre = kwargs.get("uimask_pre", False)           # Prebuild patch selection mask in the preprocessor (not in model layers)
-        self.uimask_ratio = kwargs.get("uimask_ratio", 0)           # Specify the percentage of patch tokens to skip per component
+        self.uimask_pre = kwargs.get("uimask_pre", True)           # Prebuild patch selection mask in the preprocessor (not in model layers)
+        self.uimask_ratio = kwargs.get("uimask_ratio", 0.5)           # Specify the percentage of patch tokens to skip per component
         self.uimask_rand = kwargs.get("uimask_rand", False)         # Enable random token selection instead of uniform selection
 
     def __call__(
