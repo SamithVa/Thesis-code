@@ -1,6 +1,6 @@
-from modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel, Qwen2VLForConditionalGeneration
-# from transformers import Qwen2VLForConditionalGeneration
-from transformers import AutoProcessor
+# from modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel, Qwen2VLForConditionalGeneration
+from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
+# from transformers import AutoProcessor
 from configuration_qwen2_vl import Qwen2VLConfig
 from qwen_vl_utils import process_vision_info
 import time 
@@ -8,7 +8,7 @@ import time
 if __name__=="__main__":
     model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
     device = 'cuda'
-    processor = AutoProcessor.from_pretrained(
+    processor = Qwen2VLProcessor.from_pretrained(
         model_path
     )
     messages = [
@@ -18,8 +18,8 @@ if __name__=="__main__":
             {
                 "type": "image",
                 "image": "./chrome.png",
-                "resized_height": 600,
-                "resized_width": 600,
+                "resized_height": 28 * 30,
+                "resized_width": 28 * 30,
             },
             {"type": "text", "text": "Describe this image."},
         ],
@@ -37,6 +37,7 @@ if __name__=="__main__":
         return_tensors="pt",
     )
     inputs = inputs.to(device)
+    # print(inputs)
     # print(inputs['input_ids'].shape) # 
     # # print(inputs)
     # config = Qwen2VLConfig.from_pretrained(model_path)
@@ -49,6 +50,7 @@ if __name__=="__main__":
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
     ).to(device).eval()
+    print(model)
     start_time = time.time()
     generated_ids = model.generate(**inputs, max_new_tokens=128)
     elapsed_time = time.time() - start_time

@@ -21,15 +21,15 @@
 
 from typing import Dict, List, Optional, Union
 
-from ...image_processing_utils import BatchFeature
-from ...image_processing_utils_fast import (
+from transformers.image_processing_utils import BatchFeature
+from transformers.image_processing_utils_fast import (
     BASE_IMAGE_PROCESSOR_FAST_DOCSTRING,
     BaseImageProcessorFast,
     DefaultFastImageProcessorInitKwargs,
     group_images_by_shape,
     reorder_images,
 )
-from ...image_utils import (
+from transformers.image_utils import (
     OPENAI_CLIP_MEAN,
     OPENAI_CLIP_STD,
     ChannelDimension,
@@ -42,8 +42,8 @@ from ...image_utils import (
     make_flat_list_of_images,
     valid_images,
 )
-from ...processing_utils import Unpack
-from ...utils import (
+from transformers.processing_utils import Unpack
+from transformers.utils import (
     TensorType,
     add_start_docstrings,
     is_torch_available,
