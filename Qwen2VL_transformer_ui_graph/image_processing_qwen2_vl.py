@@ -461,8 +461,6 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
             grid_t * grid_h * grid_w, channel * self.temporal_patch_size * self.patch_size * self.patch_size
         )
 
-        print(uigraph_assign.shape)
-
         return flatten_patches, (grid_t, grid_h, grid_w), uigraph_assign, processed_resize
 
     def preprocess(

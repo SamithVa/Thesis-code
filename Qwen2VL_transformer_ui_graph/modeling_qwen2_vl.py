@@ -1023,7 +1023,8 @@ class Qwen2VLDecoderLayer(nn.Module):
                 retain_mask = select_mask[0]
             else:
                 retain_mask = get_select_mask(patch_pos[0], layer_skip_ratio, rand=(self.training and self.layer_skip_rand)).to(device)
-            # retain_mask = get_select_mask(patch_pos[0], layer_skip_ratio, rand=(self.training and self.layer_skip_rand)).to(device)
+            # print("patch_pos", patch_pos.shape)
+            # print("retain_mask", retain_mask.sum())
 
             selected_hidden_states = hidden_states[:, retain_mask, :]
             adjusted_position_ids = position_ids[:, :, retain_mask]
