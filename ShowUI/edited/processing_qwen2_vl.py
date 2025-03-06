@@ -1,6 +1,4 @@
-# coding=utf-8
-# Copyright 2024 The Show Lab, National University of Singapore and the HuggingFace Inc. team. All rights reserved.
-#
+
 # This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
 # and OPT implementations in this library. It has been modified from its
 # original forms to accommodate minor architectural differences compared
@@ -18,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Processor class for ShowUI, inherited from Qwen2-VL.
+Processor class inherited from Qwen2-VL.
 """
 import pdb
 import torch
@@ -30,7 +28,7 @@ from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpa
 from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
 from transformers.utils import logging
 
-from image_processing_showui import ShowUIImageProcessor
+from image_processing_qwen2_vl import Qwen2VLImageProcessor
 from utils import get_select_mask
 
 logger = logging.get_logger(__name__)
@@ -44,13 +42,12 @@ class Qwen2VLProcessorKwargs(ProcessingKwargs, total=False):
     }
 
 
-class ShowUIProcessor(ProcessorMixin):
+class Qwen2VLProcessor(ProcessorMixin):
     r"""
-    Constructs a ShowUI processor which wraps a ShowUI image processor and a Qwen2 tokenizer into a single processor.
-    [`Qwen2VLProcessor`] offers all the functionalities of [`ShowUIImageProcessor`] and [`Qwen2TokenizerFast`]. See the
+    Constructs a Qwen2 tokenizer into a single processor.
     [`~Qwen2VLProcessor.__call__`] and [`~Qwen2VLProcessor.decode`] for more information.
     Args:
-        image_processor ([`ShowUIImageProcessor`], *optional*):
+        image_processor ([`Qwen2VLImageProcessor`], *optional*):
             The image processor is a required input.
         tokenizer ([`Qwen2TokenizerFast`], *optional*):
             The tokenizer is a required input.
@@ -90,8 +87,9 @@ class ShowUIProcessor(ProcessorMixin):
         self.video_token = "<|video_pad|>" if not hasattr(tokenizer, "video_token") else tokenizer.video_token
         super().__init__(image_processor, tokenizer, chat_template=chat_template)
         # inherited from Qwen2-VL.        
-        self.image_processor = ShowUIImageProcessor(**vars(image_processor))
-        ### ShowUI preprocessor options
+        self.image_processor = Qwen2VLImageProcessor(**vars(image_processor))
+
+
         # Screenshot -> Graph
         self.uigraph_train = kwargs.get("uigraph_train", True)      # Enable ui graph during training
         self.uigraph_test = kwargs.get("uigraph_test", True)       # Enable ui graph during inference
@@ -115,7 +113,6 @@ class ShowUIProcessor(ProcessorMixin):
         Main method to prepare for the model one or several sequences(s) and image(s). This method forwards the `text`
         and `kwargs` arguments to Qwen2TokenizerFast's [`~Qwen2TokenizerFast.__call__`] if `text` is not `None` to encode
         the text. To prepare the vision inputs, this method forwards the `vision_infos` and `kwrags` arguments to
-        ShowUIImageProcessor's [`~ShowUIImageProcessor.__call__`] if `vision_infos` is not `None`.
 
         Args:
             images (`PIL.Image.Image`, `np.ndarray`, `torch.Tensor`, `List[PIL.Image.Image]`, `List[np.ndarray]`, `List[torch.Tensor]`):
@@ -266,8 +263,9 @@ class ShowUIProcessor(ProcessorMixin):
         return list(dict.fromkeys(tokenizer_input_names + image_processor_input_names))
 
 
-if __name__=="__main__":
-    image_processor = ShowUIImageProcessor()
-    image = torch.rand([3, 448, 448])
-    img_emb = image_processor.preprocess([image], videos=None)
-    print(img_emb)
+# if __name__=="__main__":
+#     image_processor = Qwen2VLImageProcessor()
+#     image = torch.rand([3, 448, 448])
+#     img_emb = image_processor.preprocess([image], videos=None)
+#     for key in img_emb.keys():
+#         print(f'{key}')

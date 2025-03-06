@@ -1,6 +1,4 @@
-# coding=utf-8
-# Copyright 2024 The Show Lab, National University of Singapore and the HuggingFace Inc. team. All rights reserved.
-#
+
 # This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
 # and OPT implementations in this library. It has been modified from its
 # original forms to accommodate minor architectural differences compared
@@ -17,7 +15,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Image processor class for ShowUI, inherited from Qwen2-VL."""
+"""Image processor class inherited from Qwen2-VL."""
 
 import math
 from typing import Dict, List, Optional, Union
@@ -33,6 +31,7 @@ from transformers.image_transforms import (
     resize,
     to_channel_dimension_format,
 )
+
 from transformers.image_utils import (
     OPENAI_CLIP_MEAN,
     OPENAI_CLIP_STD,
@@ -170,9 +169,9 @@ class UnionFind:
             self.parent[py] = px
 
 
-class ShowUIImageProcessor(BaseImageProcessor):
+class Qwen2VLImageProcessor(BaseImageProcessor):
     r"""
-    Constructs a ShowUI image processor that inherited from Qwen2-VL, enable UI-guided visual token selection.
+    Constructs an image processor that inherited from Qwen2-VL, enable UI-guided visual token selection.
 
     Args:
         do_resize (`bool`, *optional*, defaults to `True`):

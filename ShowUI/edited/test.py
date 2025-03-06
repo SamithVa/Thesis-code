@@ -1,9 +1,8 @@
 # from modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel, Qwen2VLForConditionalGeneration
 # from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
-from modeling_showui import ShowUIForConditionalGeneration
-from processing_showui import ShowUIProcessor
-# from transformers import AutoProcessor
-from configuration_showui import Qwen2VLConfig
+from modeling_qwen2_vl import Qwen2VLForConditionalGeneration
+from processing_qwen2_vl import Qwen2VLProcessor
+from configuration_qwen2_vl import Qwen2VLConfig
 from qwen_vl_utils import process_vision_info
 import time 
 
@@ -19,10 +18,8 @@ if __name__=="__main__":
     uimask_pre = True           # Prebuild patch selection mask in the preprocessor (not in model layers) for efficiency
     uimask_ratio = 0.5          # Specify the percentage of patch tokens to skip per component
     uimask_rand = False         # Enable random token selection instead of uniform selection
-    processor = ShowUIProcessor.from_pretrained(
+    processor = Qwen2VLProcessor.from_pretrained(
         model_path, 
-        uigraph_train=uigraph_train, uigraph_test=uigraph_test, uigraph_diff=uigraph_diff, uigraph_rand=uigraph_rand,
-        uimask_pre=True, uimask_ratio=uimask_ratio, uimask_rand=uimask_rand,
     )
     messages = [
     {
@@ -50,6 +47,7 @@ if __name__=="__main__":
         return_tensors="pt",
     )
     inputs = inputs.to(device)
+    
     # print(inputs)
     # print(inputs)
     # print(inputs['input_ids'].shape) # 

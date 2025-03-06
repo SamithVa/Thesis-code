@@ -1,6 +1,4 @@
-# coding=utf-8
-# Copyright 2024 The Show Lab, National University of Singapore and the HuggingFace Inc. team. All rights reserved.
-#
+
 # This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
 # and OPT implementations in this library. It has been modified from its
 # original forms to accommodate minor architectural differences compared
@@ -17,12 +15,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""PyTorch ShowUI model, inherited from Qwen2-VL."""
+
+"""PyTorch model, inherited from Qwen2-VL."""
 
 import pdb
 import math
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
+import re
 
 import torch
 import torch.nn as nn
@@ -50,7 +50,7 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from configuration_showui import Qwen2VLConfig, Qwen2VLVisionConfig
+from configuration_qwen2_vl import Qwen2VLConfig, Qwen2VLVisionConfig
 from utils import get_select_mask
 
 if is_flash_attn_2_available():
@@ -67,9 +67,9 @@ _CONFIG_FOR_DOC = "Qwen2VLConfig"
 
 
 @dataclass
-class ShowUICausalLMOutputWithPast(ModelOutput):
+class Qwen2VLCausalLMOutputWithPast(ModelOutput):
     """
-    Base class for ShowUI causal language model (or autoregressive) outputs.
+    Base class for Qwen2VL causal language model (or autoregressive) outputs.
 
     Args:
         loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
@@ -105,6 +105,7 @@ class ShowUICausalLMOutputWithPast(ModelOutput):
     rope_deltas: Optional[torch.LongTensor] = None
 
 
+# ---------- Visual Module
 class Qwen2VLRotaryEmbedding(nn.Module):
     def __init__(
         self,
@@ -192,14 +193,12 @@ class Qwen2VLRotaryEmbedding(nn.Module):
 
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
-
 # Copied from transformers.models.llama.modeling_llama.rotate_half
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
-
 
 def apply_multimodal_rotary_pos_emb(q, k, cos, sin, mrope_section, unsqueeze_dim=1):
     """Applies Rotary Position Embedding with Multimodal Sections to the query and key tensors (https://qwenlm.github.io/blog/qwen2-vl/).
@@ -244,7 +243,6 @@ def apply_multimodal_rotary_pos_emb(q, k, cos, sin, mrope_section, unsqueeze_dim
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
-
 def apply_rotary_pos_emb_vision(tensor: torch.Tensor, freqs: torch.Tensor) -> torch.Tensor:
     orig_dtype = tensor.dtype
     tensor = tensor.float()
@@ -256,7 +254,6 @@ def apply_rotary_pos_emb_vision(tensor: torch.Tensor, freqs: torch.Tensor) -> to
     output = output.to(orig_dtype)
     return output
 
-
 class VisionRotaryEmbedding(nn.Module):
     def __init__(self, dim: int, theta: float = 10000.0) -> None:
         super().__init__()
@@ -267,7 +264,6 @@ class VisionRotaryEmbedding(nn.Module):
         seq = torch.arange(seqlen, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
         freqs = torch.outer(seq, self.inv_freq)
         return freqs
-
 
 class PatchEmbed(nn.Module):
     def __init__(
@@ -294,7 +290,6 @@ class PatchEmbed(nn.Module):
         hidden_states = self.proj(hidden_states.to(dtype=target_dtype)).view(-1, self.embed_dim)
         return hidden_states
 
-
 class PatchMerger(nn.Module):
     def __init__(self, dim: int, context_dim: int, spatial_merge_size: int = 2) -> None:
         super().__init__()
@@ -310,7 +305,6 @@ class PatchMerger(nn.Module):
         x = self.mlp(self.ln_q(x).view(-1, self.hidden_size))
         return x
 
-
 class VisionMlp(nn.Module):
     def __init__(self, dim: int, hidden_dim: int, hidden_act: str) -> None:
         super().__init__()
@@ -321,7 +315,7 @@ class VisionMlp(nn.Module):
     def forward(self, x) -> torch.Tensor:
         return self.fc2(self.act(self.fc1(x)))
 
-
+# Vision Attention Classes 
 class VisionAttention(nn.Module):
     def __init__(self, dim: int, num_heads: int = 16) -> None:
         super().__init__()
@@ -356,7 +350,6 @@ class VisionAttention(nn.Module):
         attn_output = self.proj(attn_output)
         return attn_output
 
-
 class VisionFlashAttention2(nn.Module):
     def __init__(self, dim: int, num_heads: int = 16) -> None:
         super().__init__()
@@ -378,7 +371,6 @@ class VisionFlashAttention2(nn.Module):
         )
         attn_output = self.proj(attn_output)
         return attn_output
-
 
 class VisionSdpaAttention(nn.Module):
     def __init__(self, dim: int, num_heads: int = 16) -> None:
@@ -407,13 +399,11 @@ class VisionSdpaAttention(nn.Module):
         attn_output = self.proj(attn_output)
         return attn_output
 
-
 QWEN2_VL_VISION_ATTENTION_CLASSES = {
     "eager": VisionAttention,
     "flash_attention_2": VisionFlashAttention2,
     "sdpa": VisionSdpaAttention,
 }
-
 
 class Qwen2VLVisionBlock(nn.Module):
     def __init__(self, config, attn_implementation: str = "sdpa") -> None:
@@ -455,7 +445,6 @@ class Qwen2RMSNorm(nn.Module):
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
 
-
 # Copied from transformers.models.qwen2.modeling_qwen2.Qwen2MLP
 class Qwen2MLP(nn.Module):
     def __init__(self, config):
@@ -470,7 +459,6 @@ class Qwen2MLP(nn.Module):
     def forward(self, hidden_state):
         return self.down_proj(self.act_fn(self.gate_proj(hidden_state)) * self.up_proj(hidden_state))
 
-
 # Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """
@@ -483,7 +471,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
-
+# Qwen2VL : Decoder Attention Class 
 class Qwen2VLAttention(nn.Module):
     """
     Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
@@ -593,7 +581,6 @@ class Qwen2VLAttention(nn.Module):
             attn_weights = None
 
         return attn_output, attn_weights, past_key_value
-
 
 class Qwen2VLFlashAttention2(Qwen2VLAttention):
     """
@@ -705,7 +692,6 @@ class Qwen2VLFlashAttention2(Qwen2VLAttention):
 
         return attn_output, attn_weights, past_key_value
 
-
 class Qwen2VLSdpaAttention(Qwen2VLAttention):
     """
     Qwen2 attention module using torch.nn.functional.scaled_dot_product_attention. This module inherits from
@@ -797,13 +783,35 @@ class Qwen2VLSdpaAttention(Qwen2VLAttention):
 
         return attn_output, None, past_key_value
 
-
 QWEN2_VL_ATTENTION_CLASSES = {
     "eager": Qwen2VLAttention,
     "flash_attention_2": Qwen2VLFlashAttention2,
     "sdpa": Qwen2VLSdpaAttention,
 }
 
+QWEN2VL_START_DOCSTRING = r"""
+    This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
+    library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
+    etc.)
+
+    This model is also a PyTorch [torch.nn.Module](https://pytorch.org/docs/stable/nn.html#torch.nn.Module) subclass.
+    Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general usage
+    and behavior.
+
+    Parameters:
+        config ([`Qwen2VLConfig`]):
+            Model configuration class with all the parameters of the model. Initializing with a config file does not
+            load the weights associated with the model, only the configuration. Check out the
+            [`~PreTrainedModel.from_pretrained`] method to load the model weights.
+"""
+
+
+# ---------- LLM Module
+
+@add_start_docstrings(
+    "The bare Qwen2VL Model outputting raw hidden-states without any specific head on top.",
+    QWEN2VL_START_DOCSTRING,
+)
 
 class Qwen2VLDecoderLayer(nn.Module):
     def __init__(self, config: Qwen2VLConfig, layer_idx: int):
@@ -817,7 +825,6 @@ class Qwen2VLDecoderLayer(nn.Module):
         else:
             self.layer_skip = 0
         self.layer_skip_ratio = getattr(config, "lm_skip_ratio", 0)
-        # self.layer_skip_rand = getattr(config, "skip_rand", False)
 
         if config.use_sliding_window and config._attn_implementation != "flash_attention_2":
             logger.warning_once(
@@ -980,7 +987,7 @@ class Qwen2VLDecoderLayer(nn.Module):
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         """
-        ShowUI implements UI-guided token selection construction on top of Navie self-attention block.
+        implements UI-guided token selection construction on top of Navie self-attention block.
         
         Args:
             hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
@@ -1069,32 +1076,10 @@ class Qwen2VLDecoderLayer(nn.Module):
             
         return outputs
 
-QWEN2VL_START_DOCSTRING = r"""
-    This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
-    library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
-    etc.)
-
-    This model is also a PyTorch [torch.nn.Module](https://pytorch.org/docs/stable/nn.html#torch.nn.Module) subclass.
-    Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general usage
-    and behavior.
-
-    Parameters:
-        config ([`Qwen2VLConfig`]):
-            Model configuration class with all the parameters of the model. Initializing with a config file does not
-            load the weights associated with the model, only the configuration. Check out the
-            [`~PreTrainedModel.from_pretrained`] method to load the model weights.
-"""
-
-SHOWUI_START_DOCSTRING = r"""
-    This model inherits from [`PreTrainedModel`] and supports UI-guided visual token selection built on top of `Qwen2VLPreTrainedModel`.
-"""
-
-
 @add_start_docstrings(
-    "The bare sHOWui Model outputting raw hidden-states without any specific head on top.",
-    SHOWUI_START_DOCSTRING,
+    QWEN2VL_START_DOCSTRING
 )
-class ShowUIPreTrainedModel(PreTrainedModel):
+class Qwen2VLPreTrainedModel(PreTrainedModel):
     config_class = Qwen2VLConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
@@ -1116,8 +1101,7 @@ class ShowUIPreTrainedModel(PreTrainedModel):
             if module.padding_idx is not None:
                 module.weight.data[module.padding_idx].zero_()
 
-
-class ShowUIVisionTransformerPretrainedModel(ShowUIPreTrainedModel):
+class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
     config_class = Qwen2VLVisionConfig
     _no_split_modules = ["Qwen2VLVisionBlock"]
 
@@ -1202,19 +1186,7 @@ class ShowUIVisionTransformerPretrainedModel(ShowUIPreTrainedModel):
 
         return self.merger(hidden_states)
 
-
-@add_start_docstrings(
-    "The bare Qwen2VL Model outputting raw hidden-states without any specific head on top.",
-    QWEN2VL_START_DOCSTRING,
-)
-
-class PruneToken(nn.Module):
-    def __init__(self, config) -> None:
-        pass
-    def forward(self, hidden_states: torch.Tensor, cu_seqlens: torch.Tensor) -> torch.Tensor:
-        pass
-
-class ShowUIModel(ShowUIPreTrainedModel):
+class Qwen2VLModel(Qwen2VLPreTrainedModel):
     def __init__(self, config: Qwen2VLConfig):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
@@ -1505,7 +1477,6 @@ class ShowUIModel(ShowUIPreTrainedModel):
                 )
         return causal_mask
 
-
 QWEN2_VL_INPUTS_DOCSTRING = r"""
     Args:
         input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
@@ -1581,8 +1552,7 @@ QWEN2_VL_INPUTS_DOCSTRING = r"""
             The rope index difference between sequence length and multimodal rope.
 """
 
-
-class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
+class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
     def __init__(self, config, **kwargs):
@@ -1591,11 +1561,28 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
             config.skip_rand = kwargs['skip_rand']
             config.vision_config.skip_rand = kwargs['skip_rand']
         
+        def parse_layer_type(str_ranges, L=28, default=0): # L by default is 28 because Qwen2VL has 28 decoder layers
+            # 0 is without layer token selection, 1 is with layer token selection. Below we provide examples:
+            # [1,28,1] means that all LM layers use token selection; [1,28,0] means that do not.
+            # Interleaved layer-wise '[2,2,1],[4,4,1],[6,6,1],[8,8,1],[10,10,1],[12,12,1],[14,14,1],[16,16,1],[18,18,1],[20,20,1],[22,22,1],[24,24,1],[26,26,1]'
+            result = [default] * L
+            matches = re.findall(r'\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]', str_ranges)
+            for start, end, value in matches:
+                start, end, value = int(start) - 1, int(end) - 1, int(value)
+                if end >= L:
+                    end = L - 1
+                result[start:end + 1] = [value] * (end - start + 1)
+            return result
         if 'lm_skip_layer' in kwargs:
             config.lm_skip_layer = kwargs['lm_skip_layer']
-        if 'lm_skip_ratio' in kwargs:
+        else: # loading from Qwen2VL Config
+            lm_skip_layer_str = config.lm_skip_layer
+            config.lm_skip_layer = parse_layer_type(lm_skip_layer_str)
+        if 'lm_skip_ratio' in kwargs: 
             config.lm_skip_ratio = kwargs['lm_skip_ratio']
-            
+
+        # print(config.lm_skip_layer, config.lm_skip_ratio)
+
         if 'vis_skip_layer' in kwargs:
             config.vision_config.vis_skip_layer = kwargs['vis_skip_layer']
         if 'vis_skip_ratio' in kwargs:
@@ -1603,8 +1590,8 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
         if 'vis_skip_fine' in kwargs:
             config.vision_config.vis_skip_fine = kwargs['vis_skip_fine']
 
-        self.visual = ShowUIVisionTransformerPretrainedModel._from_config(config.vision_config)
-        self.model = ShowUIModel(config)
+        self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(config.vision_config)
+        self.model = Qwen2VLModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.rope_deltas = None  # cache rope_deltas here
@@ -1780,7 +1767,7 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
             return position_ids, mrope_position_deltas
 
     @add_start_docstrings_to_model_forward(QWEN2_VL_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=ShowUICausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
+    @replace_return_docstrings(output_type=Qwen2VLCausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -1804,7 +1791,7 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
         patch_assign_sep: Optional[torch.LongTensor] = None,
         patch_pos: Optional[torch.LongTensor] = None,
         select_mask: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, ShowUICausalLMOutputWithPast]:
+    ) -> Union[Tuple, Qwen2VLCausalLMOutputWithPast]:
         r"""
         Args:
             labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
@@ -1948,7 +1935,7 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
             output = (logits,) + outputs[1:]
             return (loss,) + output if loss is not None else output
 
-        return ShowUICausalLMOutputWithPast(
+        return Qwen2VLCausalLMOutputWithPast(
             loss=loss,
             logits=logits,
             past_key_values=outputs.past_key_values,
