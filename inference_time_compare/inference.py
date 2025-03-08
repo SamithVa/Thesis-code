@@ -4,7 +4,7 @@ from qwen_vl_utils import process_vision_info
 import time
 
 
-device = 'cuda:3'
+device = 'cuda:2'
 model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct_edited_config"
 
 processor = Qwen2VLProcessor.from_pretrained(model_path, use_fast=False)
@@ -48,26 +48,28 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
     attn_implementation="flash_attention_2",
 ).eval()
 
-tps_arr = []
-times = []
-for i in range(10):
-    torch.cuda.synchronize()  # Ensure all computations are finished
-    start_time = time.time()
+# tps_arr = []
+# times = []
+# for i in range(10):
+torch.cuda.synchronize()  # Ensure all computations are finished
+start_time = time.time()
 
-    with torch.no_grad():
-        generated_ids = model.generate(**inputs, max_new_tokens=200)
-        generated_tokens = generated_ids.shape[1] - inputs["input_ids"].shape[1]
+with torch.no_grad():
+    generated_ids = model.generate(**inputs, max_new_tokens=200)
+    generated_tokens = generated_ids.shape[1] - inputs["input_ids"].shape[1]
 
-    torch.cuda.synchronize()
-    end_time = time.time()
+torch.cuda.synchronize()
+end_time = time.time()
 
-    total_time = end_time - start_time
-    tps = generated_tokens / total_time
-    tps_arr.append(tps)
-    times.append(total_time)
+total_time = end_time - start_time
+tps = generated_tokens / total_time
 
-print(sum(tps_arr) / len(tps_arr))
-print(sum(times) / len(times))
+
+# tps_arr.append(tps)
+# times.append(total_time)
+
+# print(sum(tps_arr) / len(tps_arr))
+# print(sum(times) / len(times))
 
 
 

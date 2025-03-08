@@ -131,11 +131,11 @@ class Qwen2VLProcessor(ProcessorMixin):
             text = [text]
 
         if image_grid_thw is not None:
-            merge_length = self.image_processor.merge_size**2
+            merge_length = self.image_processor.merge_size**2 # 2 ** 2 
             index = 0
             for i in range(len(text)):
                 while self.image_token in text[i]:
-                    text[i] = text[i].replace(
+                    text[i] = text[i].replace( # image_grid_thw = [grid_t, grid_h, grid_w] = [grid_t, h // patch_size, w // patch_size]
                         self.image_token, "<|placeholder|>" * (image_grid_thw[index].prod() // merge_length), 1
                     )
                     index += 1
