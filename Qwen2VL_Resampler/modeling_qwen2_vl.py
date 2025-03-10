@@ -981,6 +981,7 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         )
         # adding perceiver resampler
         self.resampler = PerceiverSdpaResampler(in_dim=config.hidden_size, out_dim=config.hidden_size, dim_head=head_dim, heads=config.num_heads)
+        
         self.gradient_checkpointing = False
 
     def get_dtype(self) -> torch.dtype:
@@ -1044,10 +1045,10 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
         merge_3d = torch.unsqueeze(merge, dim=0)
         # print(merge_3d.shape)
-        output = self.resampler(merge_3d, r=int(merge_3d.shape[1] * 0.5))
+        output = self.resampler(merge_3d, r=512)
         # print(f'output {output.shape}')
         output = torch.squeeze(output, dim=0)
-        return merge
+        return output
 
 
 @add_start_docstrings(

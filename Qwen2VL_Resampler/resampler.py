@@ -337,16 +337,22 @@ class PerceiverSdpaResampler(nn.Module):
             down_latent = attn(down_x, down_latent)  # [bsz, r, out_dim], q: latent | key, value: down_x
             latents = ff(down_latent) + latents #
         return latents
-    
+
+import time 
 if __name__ == "__main__":
     bsz, seq_len, emd_dim = 2, 1024, 4096
     out_dim = 4096
+    start_time = time.time()
     perceiver = PerceiverResampler(in_dim=emd_dim, out_dim=out_dim).cuda()
+    naive_time = time.time() - start_time
+    start_time = time.time()
     sdpa_perceiver = PerceiverSdpaResampler(in_dim=emd_dim, out_dim=out_dim).cuda()
+    sdpa_time = time.time() - start_time
     x = torch.randn(bsz, seq_len, emd_dim, device='cuda')
     output = perceiver(x, r=512)
     output2 = sdpa_perceiver(x, r=512)
     print(output.shape, output2.shape)
     same = torch.allclose(output, output2, atol=1e-6)
     print("Are the outputs the same?", same)
+    print(f'naive time : {naive_time}, sdpa : {sdpa_time}')
 
