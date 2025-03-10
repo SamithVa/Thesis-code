@@ -829,6 +829,8 @@ class Qwen2VLDecoderLayer(nn.Module):
     def __init__(self, config: Qwen2VLConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
+        self.layer_idx = layer_idx
+        self.layer_skip = 1
 
         if config.use_sliding_window and config._attn_implementation != "flash_attention_2":
             logger.warning_once(
@@ -842,6 +844,70 @@ class Qwen2VLDecoderLayer(nn.Module):
         self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        output_attentions: Optional[bool] = False,
+        use_cache: Optional[bool] = False,
+        cache_position: Optional[torch.LongTensor] = None,
+        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
+        select_mask: Optional[torch.LongTensor] = None,
+        **kwargs,
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        """
+        Args:
+            hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
+            attention_mask (`torch.FloatTensor`, *optional*): attention mask of size
+                `(batch, sequence_length)` where padding elements are indicated by 0.
+            output_attentions (`bool`, *optional*):
+                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
+                returned tensors for more detail.
+            use_cache (`bool`, *optional*):
+                If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
+                (see `past_key_values`).
+            past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
+            cache_position (`torch.LongTensor` of shape `(sequence_length)`, *optional*):
+                Indices depicting the position of the input sequence tokens in the sequence.
+            position_embeddings (`Tuple[torch.FloatTensor, torch.FloatTensor]`, *optional*):
+                Tuple containing the cosine and sine positional embeddings of shape `(batch_size, seq_len, head_dim)`,
+                with `head_dim` being the embedding dimension of each attention head.
+            select_mask (`torch.LongTensor` of shape `(sequence_length)`, *optional*):
+                Indices depicting the visual patch index tht be selected without skipping.
+            kwargs (`dict`, *optional*):
+                Arbitrary kwargs to be ignored, used for FSDP and other methods that injects code
+                into the model
+        """
+        if self.layer_skip == 0:
+            return self.navie_forward(
+                hidden_states,
+                attention_mask,
+                position_ids,
+                past_key_value,
+                output_attentions,
+                use_cache,
+                cache_position,
+                position_embeddings,
+                **kwargs,
+            )
+        elif self.layer_skip == 1:
+            return self.ui_guide_forward(
+                hidden_states,
+                attention_mask,
+                position_ids,
+                past_key_value,
+                output_attentions,
+                use_cache,
+                cache_position,
+                position_embeddings,
+                select_mask,
+                **kwargs,
+            )
+        else:
+            raise NotImplementedError
+
+    def navie_forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
@@ -908,6 +974,101 @@ class Qwen2VLDecoderLayer(nn.Module):
 
         return outputs
 
+    def ui_guide_forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        output_attentions: Optional[bool] = False,
+        use_cache: Optional[bool] = False,
+        cache_position: Optional[torch.LongTensor] = None,
+        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
+        select_mask: Optional[torch.LongTensor] = None,
+        **kwargs,
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        """
+        implements UI-guided token selection construction on top of Navie self-attention block.
+        
+        Args:
+            hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
+            attention_mask (`torch.FloatTensor`, *optional*): attention mask of size
+                `(batch, sequence_length)` where padding elements are indicated by 0.
+            output_attentions (`bool`, *optional*):
+                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
+                returned tensors for more detail.
+            use_cache (`bool`, *optional*):
+                If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
+                (see `past_key_values`).
+            past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
+            cache_position (`torch.LongTensor` of shape `(sequence_length)`, *optional*):
+                Indices depicting the position of the input sequence tokens in the sequence.
+            position_embeddings (`Tuple[torch.FloatTensor, torch.FloatTensor]`, *optional*):
+                Tuple containing the cosine and sine positional embeddings of shape `(batch_size, seq_len, head_dim)`,
+                with `head_dim` being the embedding dimension of each attention head.
+            select_mask (`torch.LongTensor` of shape `(sequence_length)`, *optional*):
+                Indices depicting the visual patch index tht be selected without skipping.
+            kwargs (`dict`, *optional*):
+                Arbitrary kwargs to be ignored, used for FSDP and other methods that injects code
+                into the model
+        """
+
+        dtype = hidden_states.dtype
+        device = hidden_states.device
+        layer_skip_ratio = getattr(self, "layer_skip_ratio", 1)
+
+        if layer_skip_ratio != 0:
+            if select_mask is not None: # select token = 1, not selected token = 0
+                retain_mask = select_mask[0]
+
+            selected_hidden_states = hidden_states[:, retain_mask, :]
+            adjusted_position_ids = position_ids[:, :, retain_mask]
+            adjusted_cache_position = cache_position[retain_mask]
+
+            # apply on position embed
+            cos, sin = position_embeddings
+            adjusted_cos = cos[:, :, retain_mask]
+            adjusted_sin = sin[:, :, retain_mask]
+            adjusted_position_embeddings = (adjusted_cos, adjusted_sin)
+
+            processed_hidden_states = hidden_states.clone()
+
+            block_outputs = self.navie_forward(
+                hidden_states=selected_hidden_states,
+                attention_mask=attention_mask,
+                position_ids=adjusted_position_ids,
+                past_key_value=past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=adjusted_cache_position,
+                position_embeddings=adjusted_position_embeddings,
+                **kwargs,
+            )
+            
+            if use_cache:
+                processed_hidden_states[:, retain_mask] = block_outputs[0].flatten(0, 1)
+                present_key_value = block_outputs[1]
+            else:
+                processed_hidden_states[:, retain_mask] = block_outputs[0]
+
+            outputs = (processed_hidden_states,)
+            if use_cache:
+                outputs += (present_key_value,)
+
+        else:
+            outputs = self.navie_forward(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,                
+                **kwargs,
+            )
+            
+        return outputs
 
 QWEN2VL_START_DOCSTRING = r"""
     This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
@@ -1091,6 +1252,7 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
+        select_mask: Optional[torch.LongTensor] = None
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -1169,6 +1331,7 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                     use_cache=use_cache,
                     cache_position=cache_position,
                     position_embeddings=position_embeddings,
+                    select_mask = select_mask,
                 )
 
             hidden_states = layer_outputs[0]
@@ -1675,6 +1838,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+        select_mask = torch.ones_like(input_ids, dtype=torch.bool, device=input_ids.device)
         if inputs_embeds is None:
             inputs_embeds = self.model.embed_tokens(input_ids)
             if pixel_values is not None:
@@ -1682,25 +1846,32 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                 image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
                 n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
                 n_image_features = image_embeds.shape[0]
-                # if n_image_tokens != n_image_features:
-                #     raise ValueError(
-                #         f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
-                #     )
-                # image_mask = (
-                #     (input_ids == self.config.image_token_id)
-                #     .unsqueeze(-1)
-                #     .expand_as(inputs_embeds)
-                #     .to(inputs_embeds.device)
-                # )
+                if n_image_tokens != n_image_features:
+                    raise ValueError(
+                        f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
+                    )
                 image_mask = (
-                    (input_ids == self.config.image_token_id)[:512]
+                    (input_ids == self.config.image_token_id)
                     .unsqueeze(-1)
                     .expand_as(inputs_embeds)
                     .to(inputs_embeds.device)
                 )
-                print(image_mask.shape)
-                import sys 
-                sys.exit()
+                # ---------------- select_mask 
+                
+                # Get positions where input_ids match image_token_id (visual tokens)
+                image_token_mask = input_ids == self.config.image_token_id
+
+                # Get indices of image tokens
+                image_token_indices = torch.nonzero(image_token_mask, as_tuple=True)[1]
+
+                # Keep only the first 512 image tokens
+                if image_token_indices.numel() > 512:
+                    image_token_indices = image_token_indices[:512]
+
+                # Set non-selected visual tokens to 0
+                select_mask[image_token_mask] = False  # Deselect all image tokens first
+                select_mask[:, image_token_indices] = True  # Re-select only the first 512 image tokens
+                # ---------------- select_mask  
                 image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
                 inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
@@ -1760,6 +1931,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
             cache_position=cache_position,
+            select_mask = select_mask,
         )
 
         hidden_states = outputs[0]
