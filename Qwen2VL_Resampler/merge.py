@@ -63,9 +63,9 @@ def self_soft_matching(metric: torch.Tensor, r: int):
 
     # select tokens
     bsz, t, c = metric.shape
-    print("unm_idx", unm_idx)
+    # print("unm_idx", unm_idx)
     unm_idx_sort, _ = unm_idx.sort(dim=1)
-    print("unm_idx_sort", unm_idx_sort) # sort unmerge index 
+    # print("unm_idx_sort", unm_idx_sort) # sort unmerge index 
     remained_tokens = metric.gather(dim=-2, index=unm_idx_sort.expand(bsz, r, c))
     # _, select_pos = torch.sort(unm_idx, dim=1)
     return remained_tokens, unm_idx

@@ -287,7 +287,7 @@ class PerceiverResampler(nn.Module):
             )
 
     def forward(self, x,r=0):
-
+        bsz, seq_len, emb_dim = x.shape
         merge = self_soft_matching(x, r)  # x [bsz, seq_len, in_dim]
         latents = merge(x)  # [bsz, r, in_dim]
         down_x = self.linear(x) # [bsz, seq, out_dim]
@@ -295,6 +295,7 @@ class PerceiverResampler(nn.Module):
         for attn, ff in self.layers: # cross attention
             down_latent = attn(down_x, down_latent)  # [bsz, r, out_dim], q: latent | key, value: down_x
             latents = ff(down_latent) + latents #
+        
         return latents
 
 class PerceiverSdpaResampler(nn.Module):
@@ -328,21 +329,23 @@ class PerceiverSdpaResampler(nn.Module):
             )
 
     def forward(self, x,r=0):
-        latents, token_pos = self_soft_matching(x, r)  # [bsz, r, in_dim]
+        latents, _ = self_soft_matching(x, r)  # [bsz, r, in_dim]
         down_x = self.linear(x) # [bsz, seq, out_dim]
         down_latent = self.linear(latents)  # [bsz, r, out_dim]
         for attn, ff in self.layers: # cross attention
             down_latent = attn(down_x, down_latent)  # [bsz, r, out_dim], q: latent | key, value: down_x
             latents = ff(down_latent) + latents #
-        return latents, token_pos
+        output = torch.zeros_like(x, device=x.device)
+        output[:, :r, :] = latents[:, :r, :]
+        return output
 
 import time 
 if __name__ == "__main__":
     bsz, seq_len, emd_dim = 2, 1024, 4096
     out_dim = 4096
     device = 'cuda:3'
-    
-    # verify perceiver and sdpaperceiver 
+
+    # verify perceiver and sdpa_perceiver output the same result 
     # start_time = time.time()
     # perceiver = PerceiverResampler(in_dim=emd_dim, out_dim=out_dim).cuda()
     # naive_time = time.time() - start_time
@@ -358,9 +361,9 @@ if __name__ == "__main__":
     # print("Are the outputs the same?", same)
     # print(f'naive time : {naive_time}, sdpa : {sdpa_time}')
 
-    input = torch.rand([bsz, seq_len, emd_dim]).to(device)
+    inputs = torch.rand([bsz, seq_len, emd_dim]).to(device)
+    print(inputs)
     sdpa_perceiver = PerceiverSdpaResampler(in_dim=emd_dim, out_dim=out_dim).to(device)
-    output_tokens, token_pos = sdpa_perceiver(input, r=512)
+    output_tokens = sdpa_perceiver(inputs, r=512)
     print(output_tokens.shape)
-    print(token_pos.shape)
 
