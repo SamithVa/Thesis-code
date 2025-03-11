@@ -4,11 +4,11 @@
 from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
 # from configuration_qwen2_vl import Qwen2VLConfig
 from qwen_vl_utils import process_vision_info
-import time 
+import time, torch
 
 if __name__=="__main__":
     model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
-    device = 'cuda:3'
+    device = 'cuda'
     processor = Qwen2VLProcessor.from_pretrained(
         model_path
     )
@@ -40,7 +40,10 @@ if __name__=="__main__":
     inputs = inputs.to(device)
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_path,
-    ).to(device).eval()
+        torch_dtype=torch.bfloat16,
+        attn_implementation="flash_attention_2",
+        device_map=device,
+    ).eval()
     # print(model)
     start_time = time.time()
     generated_ids = model.generate(**inputs, max_new_tokens=128)

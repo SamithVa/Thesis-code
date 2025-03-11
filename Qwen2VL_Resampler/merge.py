@@ -14,10 +14,10 @@ def self_soft_matching(metric: torch.Tensor, r: int):
         function: A merge function that can be applied to another tensor.
     """
     batch_size, seq_len, hidden_dim = metric.shape
-    metric_nomalized = metric.clone()
+    metric_nomalized = metric.clone().detach()
     with torch.no_grad():
         # Normalize the metric tensor along the last dimension
-        metric_nomalized = metric / metric.norm(dim=-1, keepdim=True)
+        metric_nomalized = metric / metric.norm(dim=-1, keepdim=True, dtype=metric.dtype)
 
         # Compute similarity scores using dot product
         scores = metric_nomalized @ metric_nomalized.transpose(-1, -2)
@@ -30,7 +30,7 @@ def self_soft_matching(metric: torch.Tensor, r: int):
         """
 
         # Create a diagonal mask to remove self-matching influence
-        scores_diag = torch.tril(torch.ones(seq_len, seq_len, device=metric.device)) * 2
+        scores_diag = torch.tril(torch.ones(seq_len, seq_len, device=metric.device, dtype=metric.dtype)) * 2
         """
         tensor([[2., 0., 0., 0., 0.],
                 [2., 2., 0., 0., 0.],
@@ -71,11 +71,11 @@ def self_soft_matching(metric: torch.Tensor, r: int):
     return remained_tokens, unm_idx
 
 # Test the function with random input
-if __name__ == "__main__":
-    t, feature_dim, r = 10, 5, 5 # 
-    bsz = 1
-    metric = torch.randn(bsz, t, feature_dim)
-    merged_result, token_pos = self_soft_matching(metric=metric, r=r)
-    print("Metric:", metric)
-    print("Merged Result:", merged_result)
-    print("Selected Position", token_pos)
+# if __name__ == "__main__":
+#     t, feature_dim, r = 10, 5, 5 # 
+#     bsz = 1
+#     metric = torch.randn(size = [bsz, t, feature_dim], dtype=torch.bfloat16)
+#     merged_result, token_pos = self_soft_matching(metric=metric, r=r)
+#     print("Metric:", metric)
+#     print("Merged Result:", merged_result)
+#     print("Selected Position", token_pos)

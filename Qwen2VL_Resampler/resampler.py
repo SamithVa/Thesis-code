@@ -335,15 +335,15 @@ class PerceiverSdpaResampler(nn.Module):
         for attn, ff in self.layers: # cross attention
             down_latent = attn(down_x, down_latent)  # [bsz, r, out_dim], q: latent | key, value: down_x
             latents = ff(down_latent) + latents #
-        output = torch.zeros_like(x, device=x.device)
+        output = torch.zeros_like(x, dtype=x.dtype)
         output[:, :r, :] = latents[:, :r, :]
         return output
 
 import time 
 if __name__ == "__main__":
-    bsz, seq_len, emd_dim = 2, 1024, 4096
-    out_dim = 4096
-    device = 'cuda:3'
+    bsz, seq_len, emd_dim = 2, 5, 5
+    out_dim = 5
+    device = 'cuda'
 
     # verify perceiver and sdpa_perceiver output the same result 
     # start_time = time.time()
@@ -361,9 +361,9 @@ if __name__ == "__main__":
     # print("Are the outputs the same?", same)
     # print(f'naive time : {naive_time}, sdpa : {sdpa_time}')
 
-    inputs = torch.rand([bsz, seq_len, emd_dim]).to(device)
+    inputs = torch.rand([bsz, seq_len, emd_dim]).to(device, dtype=torch.bfloat16)
     print(inputs)
-    sdpa_perceiver = PerceiverSdpaResampler(in_dim=emd_dim, out_dim=out_dim).to(device)
-    output_tokens = sdpa_perceiver(inputs, r=512)
-    print(output_tokens.shape)
+    sdpa_perceiver = PerceiverSdpaResampler(in_dim=emd_dim, out_dim=out_dim).to(device, dtype=torch.bfloat16)
+    output_tokens = sdpa_perceiver(inputs, r=2)
+    print(output_tokens)
 

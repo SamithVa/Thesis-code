@@ -1141,7 +1141,9 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
             dim=config.hidden_size, context_dim=config.embed_dim, spatial_merge_size=config.spatial_merge_size
         )
         # adding perceiver resampler
-        self.resampler = PerceiverSdpaResampler(in_dim=config.hidden_size, out_dim=config.hidden_size, dim_head=head_dim, heads=config.num_heads)
+        dtype = self.get_dtype()
+        device = self.get_device()
+        self.resampler = PerceiverSdpaResampler(in_dim=config.hidden_size, out_dim=config.hidden_size, dim_head=head_dim, heads=config.num_heads).to(device=device, dtype=dtype)
         
         self.gradient_checkpointing = False
 
@@ -1857,21 +1859,13 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                     .to(inputs_embeds.device)
                 )
                 # ---------------- select_mask 
-                
-                # Get positions where input_ids match image_token_id (visual tokens)
-                image_token_mask = input_ids == self.config.image_token_id
-
-                # Get indices of image tokens
-                image_token_indices = torch.nonzero(image_token_mask, as_tuple=True)[1]
-
-                # Keep only the first 512 image tokens
-                if image_token_indices.numel() > 512:
-                    image_token_indices = image_token_indices[:512]
-
-                # Set non-selected visual tokens to 0
-                select_mask[image_token_mask] = False  # Deselect all image tokens first
-                select_mask[:, image_token_indices] = True  # Re-select only the first 512 image tokens
-                # ---------------- select_mask  
+                select_mask = torch.ones_like(input_ids) # select all tokens
+                vision_start = 151652
+                vision_start_indices = (input_ids[0] == vision_start).nonzero(as_tuple=True)
+                vision_start_indices = vision_start_indices[0].item()
+                select_mask[:, vision_start_indices+512:vision_start_indices+n_image_tokens] = 0 # unselect after 512 visual tokens
+                # print(select_mask[0].sum())
+                # ----------------- select_maks
                 image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
                 inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
