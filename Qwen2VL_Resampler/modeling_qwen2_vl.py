@@ -53,8 +53,7 @@ if is_flash_attn_2_available():
     from transformers.modeling_flash_attention_utils import _flash_attention_forward
 else:
     flash_attn_varlen_func = None
-import time 
-import sys
+
 
 logger = logging.get_logger(__name__)
 
@@ -880,7 +879,6 @@ class Qwen2VLDecoderLayer(nn.Module):
                 Arbitrary kwargs to be ignored, used for FSDP and other methods that injects code
                 into the model
         """
-        # print(select_mask.sum(), select_mask.shape)
         if self.layer_skip == 0:
             return self.navie_forward(
                 hidden_states,
@@ -1069,10 +1067,6 @@ class Qwen2VLDecoderLayer(nn.Module):
                 **kwargs,
             )
 
-        # t = time.time() - start_time
-        # print(self.layer_idx, t)    
-        # if self.layer_idx == 27:
-        #     sys.exit()
         return outputs
 
 QWEN2VL_START_DOCSTRING = r"""
@@ -1212,9 +1206,7 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
                 hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, position_embeddings=position_embeddings)
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
         merge_3d = torch.unsqueeze(merge, dim=0)
-        # print(merge_3d.shape)
         output = self.resampler(merge_3d, r=512)
-        # print(f'output {output.shape}')
         output = torch.squeeze(output, dim=0)
         return output
 
@@ -2015,11 +2007,8 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
 
         if cache_position[0] == 0:
             select_mask = kwargs.get("select_mask", None)
-            # print("kwargs", kwargs)
-            # print("select_mask", select_mask)
         else:
             select_mask = None
-        # print("select_mask:", select_mask)
         model_inputs.update(
             {
                 "position_ids": position_ids,
@@ -2034,7 +2023,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                 "select_mask": select_mask,           
             }
         )
-        # print("model_inputs", model_inputs)
         return model_inputs
 
     # def _get_image_nums_and_video_nums(

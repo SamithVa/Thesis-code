@@ -29,7 +29,6 @@ from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpa
 from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
 from transformers.utils import logging
 import torch
-from transformers import Qwen2VLConfig
 
 logger = logging.get_logger(__name__)
 
