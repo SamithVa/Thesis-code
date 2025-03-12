@@ -336,7 +336,7 @@ class PerceiverSdpaResampler(nn.Module):
             down_latent = attn(down_x, down_latent)  # [bsz, r, out_dim], q: latent | key, value: down_x
             latents = ff(down_latent) + latents #
         output = torch.zeros_like(x, dtype=x.dtype)
-        output[:, :r, :] = latents[:, :r, :]
+        output[:, :r, :] = latents[:, :r, :] # [bsz, r, out_dim]
         return output
 
 import time 
