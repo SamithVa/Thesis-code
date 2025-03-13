@@ -47,7 +47,7 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
     model_path,
     device_map = device,
     torch_dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
+    # attn_implementation="",
 ).eval()
 
 # tps_arr = []

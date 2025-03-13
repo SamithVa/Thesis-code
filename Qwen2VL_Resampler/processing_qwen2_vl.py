@@ -37,7 +37,7 @@ vision_end_token_id = 151653
 image_token_id = 151655
 
 def get_selected_mask(input_ids):
-    select_mask = torch.ones_like(input_ids, device=input_ids.device, dtype=input_ids.dtype) # select all tokens
+    select_mask = torch.ones_like(input_ids, device=input_ids.device, dtype=torch.bool) # select all tokens
     n_image_tokens = (input_ids == image_token_id).sum().item() # image_token_id : 151655
     # print(n_image_tokens)
     vision_start = vision_start_token_id # <vision_start>
@@ -47,7 +47,7 @@ def get_selected_mask(input_ids):
 
     vision_end_indices = (input_ids[0] == vision_end).nonzero(as_tuple=True)
     vision_end_indices = vision_end_indices[0].item()
-    select_mask[:, vision_start_indices+512+1:vision_end_indices] = 0 # start_index at 10, 512 visual tokens -> 11 - 522
+    select_mask[:, vision_start_indices+512+1:vision_end_indices] = False # start_index at 10, 512 visual tokens -> 11 - 522
     return select_mask
 
 class Qwen2VLProcessorKwargs(ProcessingKwargs, total=False):

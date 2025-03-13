@@ -855,6 +855,7 @@ class Qwen2VLDecoderLayer(nn.Module):
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
         select_mask: Optional[torch.LongTensor] = None,
         **kwargs,
+
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         """
         Args:
@@ -880,7 +881,7 @@ class Qwen2VLDecoderLayer(nn.Module):
                 into the model
         """
         if self.layer_skip == 0:
-            return self.navie_forward(
+            return self.naive_forward(
                 hidden_states,
                 attention_mask,
                 position_ids,
@@ -907,7 +908,7 @@ class Qwen2VLDecoderLayer(nn.Module):
         else:
             raise NotImplementedError
 
-    def navie_forward(
+    def naive_forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
@@ -918,6 +919,7 @@ class Qwen2VLDecoderLayer(nn.Module):
         cache_position: Optional[torch.LongTensor] = None,
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
         **kwargs,
+
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         """
         Args:
@@ -943,8 +945,9 @@ class Qwen2VLDecoderLayer(nn.Module):
 
         residual = hidden_states
 
+        # print("naive forward hidden states input :", hidden_states.shape, hidden_states)
         hidden_states = self.input_layernorm(hidden_states)
-
+       
         # Self Attention
         hidden_states, self_attn_weights, present_key_value = self.self_attn(
             hidden_states=hidden_states,
@@ -956,6 +959,8 @@ class Qwen2VLDecoderLayer(nn.Module):
             cache_position=cache_position,
             position_embeddings=position_embeddings,
         )
+        # print("naive forward hidden states after self_attention :", hidden_states.shape, hidden_states)
+
         hidden_states = residual + hidden_states
 
         # Fully Connected
@@ -965,13 +970,13 @@ class Qwen2VLDecoderLayer(nn.Module):
         hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
-
+        # print("hidden_state", hidden_states)
         if output_attentions:
             outputs += (self_attn_weights,)
 
         if use_cache:
             outputs += (present_key_value,)
-
+        # print("output", outputs)
         return outputs
 
     def ui_guide_forward(
@@ -1017,11 +1022,16 @@ class Qwen2VLDecoderLayer(nn.Module):
         if layer_skip_ratio != 0 and select_mask is not None:
             # select token = 1, not selected token = 0
             retain_mask = select_mask[0] # [1, seq_length]
+            # print(select_mask.sum())
 
+            # print('hidden_state', hidden_states.shape, hidden_states)
             selected_hidden_states = hidden_states[:, retain_mask, :]
             adjusted_position_ids = position_ids[:, :, retain_mask]
             adjusted_cache_position = cache_position[retain_mask]
-        
+            # print("position_emb", position_embeddings)
+            # print("selected hidden_state",selected_hidden_states.shape, selected_hidden_states)
+
+            
             # apply on position embed
             cos, sin = position_embeddings
             adjusted_cos = cos[:, :, retain_mask]
@@ -1030,7 +1040,7 @@ class Qwen2VLDecoderLayer(nn.Module):
 
             processed_hidden_states = hidden_states.clone()
 
-            block_outputs = self.navie_forward(
+            block_outputs = self.naive_forward(
                 hidden_states=selected_hidden_states,
                 attention_mask=attention_mask,
                 position_ids=adjusted_position_ids,
@@ -1042,19 +1052,22 @@ class Qwen2VLDecoderLayer(nn.Module):
                 select_mask=select_mask,
                 **kwargs,
             )
+            # print("block_outputs", block_outputs)
             
             if use_cache:
                 processed_hidden_states[:, retain_mask] = block_outputs[0].flatten(0, 1)
                 present_key_value = block_outputs[1]
             else:
                 processed_hidden_states[:, retain_mask] = block_outputs[0]
-
+            # print("processed_hiden_states", processed_hidden_states.shape, processed_hidden_states)
+            # import sys 
+            # sys.exit()
             outputs = (processed_hidden_states,)
             if use_cache:
                 outputs += (present_key_value,)
 
         else:
-            outputs = self.navie_forward(
+            outputs = self.naive_forward(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
@@ -1062,9 +1075,7 @@ class Qwen2VLDecoderLayer(nn.Module):
                 output_attentions=output_attentions,
                 use_cache=use_cache,
                 cache_position=cache_position,
-                position_embeddings=position_embeddings,  
-                select_mask=select_mask,              
-                **kwargs,
+                position_embeddings=position_embeddings,             
             )
 
         return outputs
@@ -1113,7 +1124,7 @@ class Qwen2VLPreTrainedModel(PreTrainedModel):
                 module.weight.data[module.padding_idx].zero_()
 
 
-from resampler import PerceiverSdpaResampler
+from resampler import PerceiverResampler
 
 class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
     config_class = Qwen2VLVisionConfig
@@ -1142,7 +1153,7 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         # adding perceiver resampler
         dtype = self.get_dtype()
         device = self.get_device()
-        self.resampler = PerceiverSdpaResampler(in_dim=config.hidden_size, out_dim=config.hidden_size, dim_head=head_dim, heads=config.num_heads).to(device=device, dtype=dtype)
+        self.resampler = PerceiverResampler(in_dim=config.hidden_size, out_dim=config.hidden_size, dim_head=head_dim, heads=config.num_heads).to(device=device, dtype=dtype)
         
         self.gradient_checkpointing = False
 
@@ -1204,6 +1215,8 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
                 )
             else:
                 hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, position_embeddings=position_embeddings)
+        # import pdb 
+        # pdb.set_trace()
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
         merge_3d = torch.unsqueeze(merge, dim=0)
         output = self.resampler(merge_3d, r=512)
@@ -1593,7 +1606,7 @@ QWEN2_VL_INPUTS_DOCSTRING = r"""
 class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config, **kwargs):
+    def __init__(self, config):
         super().__init__(config)
         self.visual = Qwen2VisionTransformerPretrainedModel._from_config(config.vision_config)
         self.model = Qwen2VLModel(config)
@@ -1624,7 +1637,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
 
     def get_rope_index(
         self,
-        input_ids: torch.LongTensor,
+        input_ids: Optional[torch.LongTensor] = None,
         image_grid_thw: Optional[torch.LongTensor] = None,
         video_grid_thw: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
