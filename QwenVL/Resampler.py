@@ -90,8 +90,8 @@ class Resampler(nn.Module):
             norm_layer=nn.LayerNorm
     ):
         super().__init__()
-        self.num_queries = grid_size ** 2
-        self.embed_dim = embed_dim
+        self.num_queries = grid_size ** 2 # 14 ** 2 = 256
+        self.embed_dim = embed_dim 
         self.num_heads = num_heads
 
         # self.pos_embed = nn.Parameter(
@@ -126,14 +126,13 @@ class Resampler(nn.Module):
         # pos_embed = get_abs_pos(self.pos_embed, x.size(1))
 
         x = self.kv_proj(x)
-        x = self.ln_kv(x).permute(1, 0, 2)
+        x = self.ln_kv(x).permute(1, 0, 2) # [seq_length, batch_size, embed_dim]
 
-        N = x.shape[1]
-        q = self.ln_q(self.query)
+        N = x.shape[1] # batch_size
+        q = self.ln_q(self.query) # normalize queries
         out = self.attn(
             self._repeat(q, N),
-            # self._repeat(q, N) + self.pos_embed.unsqueeze(1),
-            # x + pos_embed.unsqueeze(1),
+            x,
             x,
             attn_mask=attn_mask)[0]
         return out.permute(1, 0, 2)
@@ -143,7 +142,7 @@ class Resampler(nn.Module):
 
 if __name__ == '__main__':
     resampler = Resampler(
-        grid_size=14,
+        grid_size=14, # query : 256
         embed_dim=512,
         num_heads=8,
     )

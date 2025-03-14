@@ -1976,15 +1976,15 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
             elif input_ids.shape[1] != cache_position.shape[0]:  # Default case (the "else", a no op, is Exception 2)
                 input_ids = input_ids[:, cache_position]
 
-        if cache_position[0] != 0:
+        if cache_position[0] != 0: # if not the 1st generation step, visual tokens are omitted
             pixel_values = None
             pixel_values_videos = None
 
         # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
-        if inputs_embeds is not None and cache_position[0] == 0:
+        if inputs_embeds is not None and cache_position[0] == 0: 
             model_inputs = {"inputs_embeds": inputs_embeds, "input_ids": None}
         else:
-            model_inputs = {"input_ids": input_ids, "inputs_embeds": None}
+            model_inputs = {"inputs_embeds": None, "input_ids": input_ids}
 
         if isinstance(past_key_values, StaticCache) and attention_mask.ndim == 2:
             if model_inputs["inputs_embeds"] is not None:
