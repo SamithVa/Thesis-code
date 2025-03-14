@@ -1124,7 +1124,7 @@ class Qwen2VLPreTrainedModel(PreTrainedModel):
                 module.weight.data[module.padding_idx].zero_()
 
 
-from resampler import PerceiverResampler
+from merge_2d import self_soft_matching
 
 class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
     config_class = Qwen2VLVisionConfig
@@ -1153,7 +1153,7 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         # adding perceiver resampler
         dtype = self.get_dtype()
         device = self.get_device()
-        self.resampler = PerceiverResampler(in_dim=config.hidden_size, out_dim=config.hidden_size, dim_head=head_dim, heads=config.num_heads).to(device=device, dtype=dtype)
+        # self.resampler = PerceiverResampler(in_dim=config.hidden_size, out_dim=config.hidden_size, dim_head=head_dim, heads=config.num_heads).to(device=device, dtype=dtype)
         
         self.gradient_checkpointing = False
 
@@ -1218,10 +1218,8 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         # import pdb 
         # pdb.set_trace()
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
-        merge_3d = torch.unsqueeze(merge, dim=0)
-        output = self.resampler(merge_3d, r=512)
-        output = torch.squeeze(output, dim=0)
-        return output
+        
+        return merge
 
 
 @add_start_docstrings(

@@ -1,6 +1,6 @@
 from modeling_qwen2_vl import Qwen2VLForConditionalGeneration
 from processing_qwen2_vl import Qwen2VLProcessor
-from transformers import Qwen2VLConfig
+# from transformers import Qwen2VLConfig
 
 # from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
 # from configuration_qwen2_vl import Qwen2VLConfig
@@ -44,7 +44,7 @@ if __name__=="__main__":
     }
     ]
 
-    config = Qwen2VLConfig.from_pretrained(model_path)
+    # config = Qwen2VLConfig.from_pretrained(model_path)
 
     text = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True

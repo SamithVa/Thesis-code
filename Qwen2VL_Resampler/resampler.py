@@ -383,7 +383,7 @@ if __name__ == "__main__":
     # print(f'naive time : {naive_time}, sdpa : {sdpa_time}')
     inputs = torch.randint(low=-47, high=90, size=[bsz, seq_len, emd_dim]).to(device, dtype=torch.bfloat16)
     print(inputs)
-    sdpa_perceiver = PerceiverResampler(in_dim=emd_dim, out_dim=out_dim).to(device, dtype=torch.bfloat16)
-    output_tokens = sdpa_perceiver(inputs, r=2)
+    perceiver = PerceiverResampler(in_dim=emd_dim, out_dim=out_dim).to(device, dtype=torch.bfloat16)
+    output_tokens = perceiver(inputs, r=2)
     print(output_tokens)
 
