@@ -63,19 +63,20 @@ def self_soft_matching(metric: torch.Tensor, r: int):
 
     # select tokens
     bsz, t, c = metric.shape
-    # print("unm_idx", unm_idx)
     unm_idx_sort, _ = unm_idx.sort(dim=1)
-    # print("unm_idx_sort", unm_idx_sort) # sort unmerge index 
     remained_tokens = metric.gather(dim=-2, index=unm_idx_sort.expand(bsz, r, c))
-    # _, select_pos = torch.sort(unm_idx, dim=1)
-    return remained_tokens, unm_idx
+    mask = torch.zeros([bsz, t], dtype=torch.bool, device=metric.device)
+    print(unm_idx_sort)
+    mask.scatter_(1, unm_idx_sort.squeeze(-1), True)
+    return remained_tokens, mask
 
 # Test the function with random input
-# if __name__ == "__main__":
-#     t, feature_dim, r = 10, 5, 5 # 
-#     bsz = 1
-#     metric = torch.randn(size = [bsz, t, feature_dim], dtype=torch.bfloat16)
-#     merged_result, token_pos = self_soft_matching(metric=metric, r=r)
-#     print("Metric:", metric)
-#     print("Merged Result:", merged_result)
-#     print("Selected Position", token_pos)
+if __name__ == "__main__":
+    t, feature_dim, r = 10, 5, 5 # 
+    bsz = 1
+    device = 'cuda'
+    metric = torch.randn(size = [bsz, t, feature_dim], dtype=torch.bfloat16, device=device)
+    merged_result, mask = self_soft_matching(metric=metric, r=r)
+    print("Metric:", metric)
+    print("Merged Result:", merged_result)
+    print("Mask", mask)

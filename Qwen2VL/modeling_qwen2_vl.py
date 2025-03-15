@@ -29,14 +29,14 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch.nn import CrossEntropyLoss, LayerNorm
 
-from ...activations import ACT2FN
-from ...cache_utils import Cache, DynamicCache, SlidingWindowCache, StaticCache
-from ...generation import GenerationMixin
-from ...modeling_attn_mask_utils import AttentionMaskConverter
-from ...modeling_outputs import BaseModelOutputWithPast, ModelOutput
-from ...modeling_rope_utils import ROPE_INIT_FUNCTIONS
-from ...modeling_utils import PreTrainedModel
-from ...utils import (
+from transformers.activations import ACT2FN
+from transformers.cache_utils import Cache, DynamicCache, SlidingWindowCache, StaticCache
+from transformers.generation import GenerationMixin
+from transformers.modeling_attn_mask_utils import AttentionMaskConverter
+from transformers.modeling_outputs import BaseModelOutputWithPast, ModelOutput
+from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+from transformers.modeling_utils import PreTrainedModel
+from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     is_flash_attn_2_available,
@@ -50,7 +50,7 @@ from .configuration_qwen2_vl import Qwen2VLConfig, Qwen2VLVisionConfig
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_varlen_func
 
-    from ...modeling_flash_attention_utils import _flash_attention_forward
+    from transformers.modeling_flash_attention_utils import _flash_attention_forward
 else:
     flash_attn_varlen_func = None
 
@@ -1664,7 +1664,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if inputs_embeds is None:
-            inputs_embeds = self.model.embed_tokens(input_ids)
+            inputs_embeds = self.model.embed_tokens(input_ids) # input_ids : [bsz, seq_len]
             if pixel_values is not None:
                 pixel_values = pixel_values.type(self.visual.get_dtype())
                 image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
@@ -1681,7 +1681,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                     .to(inputs_embeds.device)
                 )
                 image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-                inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+                inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds) # replace 
 
             if pixel_values_videos is not None:
                 pixel_values_videos = pixel_values_videos.type(self.visual.get_dtype())
@@ -1727,7 +1727,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                     delta = delta.to(position_ids.device)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
-
         outputs = self.model(
             input_ids=None,
             position_ids=position_ids,
@@ -1803,7 +1802,8 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             use_cache=use_cache,
             **kwargs,
         )
-
+        import pdb
+        pdb.set_trace()
         # Qwen2-VL position_ids are prepareed with rope_deltas in forward
         model_inputs["position_ids"] = None
 

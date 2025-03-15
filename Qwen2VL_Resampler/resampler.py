@@ -25,117 +25,6 @@ from einops_exts import rearrange_many
 from torch import einsum
 from merge import *
 
-# From Qwen2VL
-
-
-# Copied from transformers.models.llama.modeling_llama.rotate_half
-# def rotate_half(x):
-#     """Rotates half the hidden dims of the input."""
-#     x1 = x[..., : x.shape[-1] // 2]
-#     x2 = x[..., x.shape[-1] // 2 :]
-#     return torch.cat((-x2, x1), dim=-1)
-
-
-# def apply_multimodal_rotary_pos_emb(q, k, cos, sin, mrope_section, unsqueeze_dim=1):
-#     """Applies Rotary Position Embedding with Multimodal Sections to the query and key tensors (https://qwenlm.github.io/blog/qwen2-vl/).
-
-#     Explanation:
-#         Multimodal 3D rotary position embedding is an extension to 1D rotary position embedding. The input embedding
-#         sequence contains vision (images / videos) embedding and text embedding or just contains text embedding. For
-#         vision embedding part, we apply rotary position embedding on temporal, height and width dimension seperately.
-#         Here we split the channel dimension to 3 chunks for the temporal, height and width rotary position embedding.
-#         For text embedding part, we just apply 1D rotary position embedding. The three rotary position index (temporal,
-#         height and width) of text embedding is always the same, so the text embedding rotary position embedding has no
-#         difference with modern LLMs.
-
-#     Args:
-#         q (`torch.Tensor`): The query tensor.
-#         k (`torch.Tensor`): The key tensor.
-#         cos (`torch.Tensor`): The cosine part of the rotary embedding.
-#         sin (`torch.Tensor`): The sine part of the rotary embedding.
-#         position_ids (`torch.Tensor`):
-#             The position indices of the tokens corresponding to the query and key tensors. For example, this can be
-#             used to pass offsetted position ids when working with a KV-cache.
-#         mrope_section(`List(int)`):
-#             Multimodal rope section is for channel dimension of temporal, height and width in rope calculation.
-#         unsqueeze_dim (`int`, *optional*, defaults to 1):
-#             The 'unsqueeze_dim' argument specifies the dimension along which to unsqueeze cos[position_ids] and
-#             sin[position_ids] so that they can be properly broadcasted to the dimensions of q and k. For example, note
-#             that cos[position_ids] and sin[position_ids] have the shape [batch_size, seq_len, head_dim]. Then, if q and
-#             k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
-#             cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
-#             the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
-#     Returns:
-#         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
-#     """
-#     mrope_section = mrope_section * 2
-#     cos = torch.cat([m[i % 3] for i, m in enumerate(cos.split(mrope_section, dim=-1))], dim=-1).unsqueeze(
-#         unsqueeze_dim
-#     )
-#     sin = torch.cat([m[i % 3] for i, m in enumerate(sin.split(mrope_section, dim=-1))], dim=-1).unsqueeze(
-#         unsqueeze_dim
-#     )
-
-#     q_embed = (q * cos) + (rotate_half(q) * sin)
-#     k_embed = (k * cos) + (rotate_half(k) * sin)
-#     return q_embed, k_embed
-
-
-# def apply_rotary_pos_emb_vision(
-#     q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
-# ) -> Tuple[torch.Tensor, torch.Tensor]:
-#     orig_q_dtype = q.dtype
-#     orig_k_dtype = k.dtype
-#     q, k = q.float(), k.float()
-#     cos, sin = cos.unsqueeze(-2).float(), sin.unsqueeze(-2).float()
-#     q_embed = (q * cos) + (rotate_half(q) * sin)
-#     k_embed = (k * cos) + (rotate_half(k) * sin)
-#     q_embed = q_embed.to(orig_q_dtype)
-#     k_embed = k_embed.to(orig_k_dtype)
-#     return q_embed, k_embed
-
-# class VisionSdpaAttention(nn.Module):
-#     def __init__(self, dim: int, num_heads: int = 16) -> None:
-#         super().__init__()
-#         self.num_heads = num_heads
-#         self.qkv = nn.Linear(dim, dim * 3, bias=True)
-#         self.proj = nn.Linear(dim, dim)
-
-#     def forward(
-#         self,
-#         hidden_states: torch.Tensor,
-#         cu_seqlens: torch.Tensor,
-#         rotary_pos_emb: Optional[torch.Tensor] = None,
-#         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-#     ) -> torch.Tensor:
-#         seq_length = hidden_states.shape[0]
-#         q, k, v = self.qkv(hidden_states).reshape(seq_length, 3, self.num_heads, -1).permute(1, 0, 2, 3).unbind(0)
-#         if position_embeddings is None:
-#             logger.warning_once(
-#                 "The attention layers in this model are transitioning from computing the RoPE embeddings internally "
-#                 "through `rotary_pos_emb` (2D tensor of RoPE theta values), to using externally computed "
-#                 "`position_embeddings` (Tuple of tensors, containing cos and sin). In v4.54 `rotary_pos_emb` will be "
-#                 "removed and `position_embeddings` will be mandatory."
-#             )
-#             emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
-#             cos = emb.cos()
-#             sin = emb.sin()
-#         else:
-#             cos, sin = position_embeddings
-#         q, k = apply_rotary_pos_emb_vision(q, k, cos, sin)
-
-#         attention_mask = torch.zeros([1, seq_length, seq_length], device=q.device, dtype=torch.bool)
-#         for i in range(1, len(cu_seqlens)):
-#             attention_mask[..., cu_seqlens[i - 1] : cu_seqlens[i], cu_seqlens[i - 1] : cu_seqlens[i]] = True
-#         q = q.transpose(0, 1)
-#         k = k.transpose(0, 1)
-#         v = v.transpose(0, 1)
-#         attn_output = F.scaled_dot_product_attention(q, k, v, attention_mask, dropout_p=0.0)
-#         attn_output = attn_output.transpose(0, 1)
-#         attn_output = attn_output.reshape(seq_length, -1)
-#         attn_output = self.proj(attn_output)
-#         return attn_output
-
 
 class FeedForward(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks
@@ -284,16 +173,16 @@ class PerceiverResampler(nn.Module):
 
         self.layers = nn.ModuleList([])
 
-        # for _ in range(depth):
-        #     self.layers.append(
-        #         nn.ModuleList(
-        #             [
-        #                 # PerceiverAttention(dim=in_dim, dim_head=dim_head, heads=heads),
-        #                 PerceiverAttention(dim=in_dim, heads=heads),
-        #                 FeedForward(in_features=in_dim, hidden_features=in_dim,out_features=out_dim),
-        #             ]
-        #         )
-        #     )
+        for _ in range(depth):
+            self.layers.append(
+                nn.ModuleList(
+                    [
+                        # PerceiverAttention(dim=in_dim, dim_head=dim_head, heads=heads),
+                        PerceiverAttention(dim=in_dim, heads=heads),
+                        FeedForward(in_features=in_dim, hidden_features=in_dim,out_features=out_dim),
+                    ]
+                )
+            )
 
     def forward(self, x,r=0):
         
@@ -359,6 +248,76 @@ class PerceiverSdpaResampler(nn.Module):
         output = torch.ones_like(x, dtype=x.dtype, device=x.device)
         output[:, :r, :] = latents.clone() # [bsz, r, out_dim]
         return output
+
+
+from torch.nn.init import trunc_normal_
+
+class Resampler(nn.Module):
+    """
+    A 2D perceiver-resampler network with one cross attention layers by
+        (grid_size**2) learnable queries and 2d sincos pos_emb
+    Outputs:
+        A tensor with the shape of (grid_size**2, embed_dim)
+    """
+
+    def __init__(
+            self,
+            grid_size,
+            embed_dim,
+            num_heads,
+            kv_dim=None,
+            norm_layer=nn.LayerNorm
+    ):
+        super().__init__()
+        self.num_queries = grid_size ** 2 # 14 ** 2 = 256
+        self.embed_dim = embed_dim 
+        self.num_heads = num_heads
+
+        # self.pos_embed = nn.Parameter(
+        #     torch.from_numpy(get_2d_sincos_pos_embed(embed_dim, grid_size)).float()
+        # ).requires_grad_(False)
+
+        self.query = nn.Parameter(torch.zeros(self.num_queries, embed_dim))
+        trunc_normal_(self.query, std=.02)
+
+        if kv_dim is not None and kv_dim != embed_dim:
+            self.kv_proj = nn.Linear(kv_dim, embed_dim, bias=False)
+        else:
+            self.kv_proj = nn.Identity()
+
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads)
+        self.ln_q = norm_layer(embed_dim)
+        self.ln_kv = norm_layer(embed_dim)
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+
+    def forward(self, x, attn_mask=None):
+
+        # pos_embed = get_abs_pos(self.pos_embed, x.size(1))
+
+        x = self.kv_proj(x)
+        x = self.ln_kv(x).permute(1, 0, 2) # [seq_length, batch_size, embed_dim]
+
+        N = x.shape[1] # batch_size
+        q = self.ln_q(self.query) # normalize queries
+        out = self.attn(
+            self._repeat(q, N), # repeat q, for N head
+            x,
+            x,
+            attn_mask=attn_mask)[0]
+        return out.permute(1, 0, 2)
+
+    def _repeat(self, query, N: int):
+        return query.unsqueeze(1).repeat(1, N, 1)
 
 import time 
 if __name__ == "__main__":

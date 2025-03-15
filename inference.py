@@ -1,9 +1,6 @@
-# from modeling_qwen2_vl import Qwen2VLForConditionalGeneration
-# from processing_qwen2_vl import Qwen2VLProcessor
-# from transformers import Qwen2VLConfig
+from Qwen2VL.modeling_qwen2_vl import Qwen2VLForConditionalGeneration
+from Qwen2VL.processing_qwen2_vl import Qwen2VLProcessor
 
-from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
-# from configuration_qwen2_vl import Qwen2VLConfig
 from qwen_vl_utils import process_vision_info
 import time, torch
 

@@ -130,8 +130,10 @@ class Resampler(nn.Module):
 
         N = x.shape[1] # batch_size
         q = self.ln_q(self.query) # normalize queries
+        print(q.shape)
+        print(self._repeat(q, N).shape)
         out = self.attn(
-            self._repeat(q, N),
+            self._repeat(q, N), # repeat q, for N head
             x,
             x,
             attn_mask=attn_mask)[0]
@@ -142,10 +144,10 @@ class Resampler(nn.Module):
 
 if __name__ == '__main__':
     resampler = Resampler(
-        grid_size=14, # query : 256
+        grid_size=16, # query : 256
         embed_dim=512,
         num_heads=8,
     )
-    x = torch.randn(3, 1024, 512)
+    x = torch.randn(1, 1024, 512) # [batch_size, seq, embed_dim]
     y = resampler(x) # output_dim : [3, grid_size^2, embed_dim]
     print(y.shape)
