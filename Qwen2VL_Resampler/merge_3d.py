@@ -66,7 +66,7 @@ def self_soft_matching(metric: torch.Tensor, r: int):
     unm_idx_sort, _ = unm_idx.sort(dim=1)
     remained_tokens = metric.gather(dim=-2, index=unm_idx_sort.expand(bsz, r, c))
     mask = torch.zeros([bsz, t], dtype=torch.bool, device=metric.device)
-    print(unm_idx_sort)
+    # print(unm_idx_sort)
     mask.scatter_(1, unm_idx_sort.squeeze(-1), True)
     return remained_tokens, mask
 

@@ -172,7 +172,7 @@ class Qwen2VLProcessor(ProcessorMixin):
         text_inputs = self.tokenizer(text, **output_kwargs["text_kwargs"])
 
         # select_maks 
-        text_inputs["select_mask"] = get_selected_mask(text_inputs["input_ids"])
+        text_inputs["select_mask"] = torch.ones_like(text_inputs['input_ids'], dtype= torch.bool)
 
         return BatchFeature(data={**text_inputs, **image_inputs, **videos_inputs})
 

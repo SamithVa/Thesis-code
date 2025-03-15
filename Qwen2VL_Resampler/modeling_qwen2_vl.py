@@ -1124,7 +1124,7 @@ class Qwen2VLPreTrainedModel(PreTrainedModel):
                 module.weight.data[module.padding_idx].zero_()
 
 
-from merge_2d import self_soft_matching
+from resampler import PerceiverSdpaResampler
 
 class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
     config_class = Qwen2VLVisionConfig
@@ -1151,9 +1151,7 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
             dim=config.hidden_size, context_dim=config.embed_dim, spatial_merge_size=config.spatial_merge_size
         )
         # adding perceiver resampler
-        dtype = self.get_dtype()
-        device = self.get_device()
-        # self.resampler = PerceiverResampler(in_dim=config.hidden_size, out_dim=config.hidden_size, dim_head=head_dim, heads=config.num_heads).to(device=device, dtype=dtype)
+        self.resampler = PerceiverSdpaResampler(in_dim=config.hidden_size, out_dim=config.hidden_size)
         
         self.gradient_checkpointing = False
 
@@ -1215,11 +1213,9 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
                 )
             else:
                 hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, position_embeddings=position_embeddings)
-        # import pdb 
-        # pdb.set_trace()
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
-        
-        return merge
+        output, selected_mask = self.resampler(merge, r=512)
+        return output, selected_mask
 
 
 @add_start_docstrings(
@@ -1854,21 +1850,25 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             inputs_embeds = self.model.embed_tokens(input_ids)
             if pixel_values is not None:
                 pixel_values = pixel_values.type(self.visual.get_dtype())
-                image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+                image_embeds, visual_select_mask = self.visual(pixel_values, grid_thw=image_grid_thw)
                 n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
                 n_image_features = image_embeds.shape[0]
                 if n_image_tokens != n_image_features:
                     raise ValueError(
                         f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
                     )
+                # import pdb
+                # pdb.set_trace()
                 image_mask = (
                     (input_ids == self.config.image_token_id)
                     .unsqueeze(-1)
                     .expand_as(inputs_embeds)
                     .to(inputs_embeds.device)
                 )
+
                 image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
                 inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+                select_mask[(input_ids == self.config.image_token_id)] = visual_select_mask
 
             if pixel_values_videos is not None:
                 pixel_values_videos = pixel_values_videos.type(self.visual.get_dtype())
@@ -1914,7 +1914,9 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                     delta = delta.to(position_ids.device)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
-
+        # import pdb
+        # pdb.set_trace()
+        
         outputs = self.model(
             input_ids=None,
             position_ids=position_ids,
