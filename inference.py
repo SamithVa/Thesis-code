@@ -4,22 +4,6 @@ from Qwen2VL.processing_qwen2_vl import Qwen2VLProcessor
 from qwen_vl_utils import process_vision_info
 import time, torch
 
-def get_selected_mask(input_ids, config):
-    select_mask = torch.ones_like(input_ids, device=input_ids.device, dtype=input_ids.dtype) # select all tokens
-    n_image_tokens = (input_ids == config.image_token_id).sum().item() # image_token_id : 151655
-    # print(n_image_tokens)
-    vision_start = config.vision_start_token_id # <vision_start>
-    vision_end = config.vision_end_token_id
-    vision_start_indices = (input_ids[0] == vision_start).nonzero(as_tuple=True)
-    vision_start_indices = vision_start_indices[0].item()
-
-    vision_end_indices = (input_ids[0] == vision_end).nonzero(as_tuple=True)
-    vision_end_indices = vision_end_indices[0].item()
-    # print(f"vision start idx {vision_start_indices}, vision end idx {vision_end_indices}, total {vision_end_indices - vision_start_indices -1}")
-    select_mask[:, vision_start_indices+512:vision_end_indices] = 0
-    # print(select_mask.sum())
-    return select_mask
-
 if __name__=="__main__":
     model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
     device = 'cuda'
@@ -56,12 +40,7 @@ if __name__=="__main__":
     )
     inputs = inputs.to(device)
     # print(inputs['select_mask'].shape)
-    model = Qwen2VLForConditionalGeneration.from_pretrained(
-        model_path,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
-        device_map=device,
-    ).eval()
+    model = Qwen2VLForConditionalGeneration(device=device, dtype=torch.bfloat16)
     
     # print(model)
     start_time = time.time()

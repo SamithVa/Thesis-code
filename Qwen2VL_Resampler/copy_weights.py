@@ -8,10 +8,10 @@ target_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-Resampler"
 
 processor = Qwen2VLProcessor.from_pretrained(model_path)
 # Load source model (pretrained)
-source_model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, device_map='cuda:1')
+source_model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, device_map='cuda:1', torch_dtype=torch.bfloat16)
 
 # Load target model (ensure it has a similar but possibly different architecture)
-target_model = Qwen2VLForConditionalGeneration.from_pretrained(target_path, device_map='cuda:0')  # Change model name if needed
+target_model = Qwen2VLForConditionalGeneration.from_pretrained(target_path, device_map='cuda:0', torch_dtype=torch.bfloat16)  # Change model name if needed
 
 # Load source model's state dictionary
 source_state_dict = source_model.state_dict()
