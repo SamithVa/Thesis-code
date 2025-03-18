@@ -1042,7 +1042,7 @@ class Qwen2VLDecoderLayer(nn.Module):
                 patch_pos=patch_pos,
                 **kwargs,
             )
-            
+            pdb.set_trace()
             if use_cache:
                 processed_hidden_states[:, retain_mask] = block_outputs[0].flatten(0, 1)
                 present_key_value = block_outputs[1]

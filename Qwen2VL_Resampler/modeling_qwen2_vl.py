@@ -1126,7 +1126,7 @@ class Qwen2VLPreTrainedModel(PreTrainedModel):
 
 from resampler import PerceiverSdpaResampler
 
-class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
+class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
     config_class = Qwen2VLVisionConfig
     _no_split_modules = ["Qwen2VLVisionBlock"]
 
@@ -1602,7 +1602,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
 
     def __init__(self, config):
         super().__init__(config)
-        self.visual = Qwen2VisionTransformerPretrainedModel._from_config(config.vision_config)
+        self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(config.vision_config)
         self.model = Qwen2VLModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)

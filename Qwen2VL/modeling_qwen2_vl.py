@@ -18,7 +18,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """PyTorch Qwen2-VL model."""
-
+import pdb
 import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -874,9 +874,9 @@ class Qwen2VLDecoderLayer(nn.Module):
                 into the model
         """
 
+        # import pdb
+        # pdb.set_trace()
         residual = hidden_states
-        import pdb
-        pdb.set_trace()
         hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
@@ -1414,6 +1414,8 @@ QWEN2_VL_INPUTS_DOCSTRING = r"""
             The temporal, height and width of feature shape of each video in LLM.
         rope_deltas (`torch.LongTensor` of shape `(batch_size, )`, *optional*):
             The rope index difference between sequence length and multimodal rope.
+        cache_position(`torch.LongTensor` of shape [sequence_length]) 
+            e.g tensor([   0,    1,    2,  ..., 2713, 2714, 2715], device='cuda:0'
 """
 
 
@@ -1657,7 +1659,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "The image shows a street scene with a red stop sign in the foreground. In the background, there is a large red gate with Chinese characters ..."
         ```"""
-
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -1669,6 +1670,8 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             if pixel_values is not None:
                 pixel_values = pixel_values.type(self.visual.get_dtype())
                 image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+                # import pdb 
+                # pdb.set_trace()
                 n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
                 n_image_features = image_embeds.shape[0]
                 if n_image_tokens != n_image_features:
@@ -1683,7 +1686,8 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                 )
                 image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
                 inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds) # replace 
-
+                # import pdb
+                # pdb.set_trace()
             if pixel_values_videos is not None:
                 pixel_values_videos = pixel_values_videos.type(self.visual.get_dtype())
                 video_embeds = self.visual(pixel_values_videos, grid_thw=video_grid_thw)
@@ -1702,7 +1706,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                 video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
                 inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
 
-            if attention_mask is not None:
+            if attention_mask is not None: # if not `None`, move to device
                 attention_mask = attention_mask.to(inputs_embeds.device)
 
         # if we get 4D attention mask we cannot calculate rope deltas anymore. TODO @raushan fixme
@@ -1728,6 +1732,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                     delta = delta.to(position_ids.device)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+        
         outputs = self.model(
             input_ids=None,
             position_ids=position_ids,

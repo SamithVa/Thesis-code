@@ -9,6 +9,7 @@ from PIL import Image
 import argparse
 import os 
 from tqdm import tqdm
+import numpy as np
 
 def parse_sentence(sentence):
     """Parses model response 'sentence' column correctly."""
@@ -125,8 +126,7 @@ df = pd.DataFrame(pred_data)
 ref_df = pd.DataFrame(ref_data)
 
 # model responses "sentence" are in string format : parse string -> dict format
-# df['sentence'] = df['sentence'].apply(parse_sentence) # array of string 
-df['sentence'] = df['sentence'].apply(ast.literal_eval) # string -> dict
+df['sentence'] = df['sentence'].apply(parse_sentence)
 
 merge_df = pd.merge(df, ref_df, on=['annot_id', 'img_path'])
 
@@ -144,69 +144,78 @@ ele_mismatch_df = merge_df[merge_df['annot_id'].isin(ele_mismatch_df['annot_id']
 
 
 mismatch_types = {
-    "operation_mismatch": op_mismatch_df,
+    # "operation_mismatch": op_mismatch_df,
     'element_mismatch': ele_mismatch_df
 }
 
-# Drawing functions
 def draw_rectangle(ax, bbox, img_width, img_height):
-        """Draws a rectangle on the given axes."""
-        x_min = bbox[0] * img_width
-        y_min = bbox[1] * img_height
-        x_max = bbox[2] * img_width
-        y_max = bbox[3] * img_height
-        rect_width = x_max - x_min
-        rect_height = y_max - y_min
+    """Draws a rectangle on the given axes."""
+    x_min = bbox[0] * img_width
+    y_min = bbox[1] * img_height
+    x_max = bbox[2] * img_width
+    y_max = bbox[3] * img_height
+    rect_width = x_max - x_min
+    rect_height = y_max - y_min
 
-        rect = patches.Rectangle((x_min, y_min), rect_width, rect_height, 
-                                linewidth=2, edgecolor='green', facecolor='none')
-        ax.add_patch(rect)
+    rect = patches.Rectangle((x_min, y_min), rect_width, rect_height, 
+                             linewidth=2, edgecolor='green', facecolor='none')
+    ax.add_patch(rect)
+
 
 def draw_click_point(ax, click_point, img_width, img_height):
     """Draws a click point on the given axes."""
-    x = click_point[0] * img_width
-    y = click_point[1] * img_height
-    ax.scatter(x, y, c='red', s=20, edgecolor='black')
+    x = float(click_point[0]) * img_width
+    y = float(click_point[1]) * img_height
+    ax.scatter(x, y, c='red', s=50, edgecolor='black')
 
-def save_images_with_annotations(imgs_list, bboxes, acts, ref_acts, operations, ref_f1, instructions, output_dir, annot_ids):
-    last_id = 1
+
+def save_images_with_annotations(imgs_list, bboxes, acts, ref_acts, instructions, output_dir, annot_ids):
+    """
+    Inputs : imgs_list, bboxes, acts, ref_acts, instructions, output_dir, annot_ids
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    last_id = None
     count = 0
-    for i, img_path in tqdm(enumerate(imgs_list), total=len(imgs_list), desc="Saving output images"):
-        fig, ax = plt.subplots(figsize=(20, 10), dpi=100)
-        img = mpimg.imread(img_path)
-        img_height, img_width, _ = img.shape
+
+    for i, img_path in tqdm(enumerate(imgs_list), total=len(imgs_list), desc="Saving images"):
+        # Load image to get original resolution
+        img = Image.open(img_path)
+        img_width, img_height = img.size
+        text_bg_height = 100  # Adjust for readability
+        new_img_height = img_height + text_bg_height
+
+        fig, ax = plt.subplots(figsize=(img_width / 100, new_img_height / 100), dpi=100)
+        ax.set_xlim(0, img_width)
+        ax.set_ylim(0, new_img_height)
+        ax.axis('off')
+
+        # Fill the top part with white background for text
+        ax.add_patch(patches.Rectangle((0, img_height), img_width, text_bg_height, color="white", lw=0))
         
-        # Plot the image
-        ax.imshow(img)
+        # Display the image
+        img_data = mpimg.imread(img_path)
+        ax.imshow(img_data, extent=[0, img_width, 0, img_height])
 
-        # Draw rectangle bbox
+        # Draw bounding box and click point
         draw_rectangle(ax, bboxes[i], img_width, img_height)
-
-        # Draw the click point
         draw_click_point(ax, acts[i]['click_point'], img_width, img_height)
 
-        # Add text at the top of the image
-        res_act = acts[i]['action_type']
-        ax.text(0, 1.10, f'Response: {operations[res_act]},     {acts[i]},',
-                    color='red', transform=ax.transAxes, fontsize=15, ha='left')
-        ax.text(0, 1.06, f'Reference: {operations[ref_f1[i][1]]},   {ref_acts[i]},',
-                    color='green', transform=ax.transAxes, fontsize=15, ha='left')
-        ax.text(0, 1.02, f'Instruction: {instructions[i]}',
-                    color='black', transform=ax.transAxes, fontsize=15, ha='left')
+        # Add text annotations on the white background at the top
+        annotation_text = (
+            f"Response: {acts[i]}\n"
+            f"Reference: {ref_acts[i]}\n"
+            f"Instruction: {instructions[i]}"
+        )
+        ax.text(10, img_height + text_bg_height, annotation_text, fontsize=10, color="black", verticalalignment="top")
 
-        # Hide the axis
-        ax.axis('off')
+        # Manage filenames to avoid overwriting
         if annot_ids[i] != last_id:
             count = 1
         else:
             count += 1
         last_id = annot_ids[i]
-        # Save the image with annotation
-        output_path = os.path.join(output_dir, f'{annot_ids[i]}_{count}.png')
-        plt.savefig(output_path, bbox_inches='tight', pad_inches=0.1)
-        # print(f'Saved {output_path}')
-        
-        # Close the figure to free up memory
+
+        plt.savefig(os.path.join(output_dir, f'{annot_ids[i]}_{count}.png'), bbox_inches='tight', pad_inches=0)
         plt.close(fig)
 
 # Saving images 
@@ -228,5 +237,5 @@ for index, key in enumerate(mismatch_types):
     # print(annot_ids)
     # acts_type -> operation
     operations = [' ', ' ' , 'SELECT', 'TYPE','CLICK-HOVER-ENTER']
-    save_images_with_annotations(imgs_list, bboxes, acts, ref_acts, operations, op_f1, instructions, imgs_output_dir, annot_ids)
+    save_images_with_annotations(imgs_list, bboxes, acts, ref_acts, instructions, imgs_output_dir, annot_ids)
     filtered_df.to_json(f"{imgs_output_dir}/{task}_{key}_annot.json", indent=4)

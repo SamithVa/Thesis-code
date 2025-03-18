@@ -5,7 +5,7 @@ from qwen_vl_utils import process_vision_info
 import time, torch
 
 if __name__=="__main__":
-    model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
+    model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct-Merge-4"
     device = 'cuda'
     processor = Qwen2VLProcessor.from_pretrained(
         model_path
@@ -17,8 +17,8 @@ if __name__=="__main__":
             {
                 "type": "image",
                 "image": "./chrome.png",
-                "resized_height": 28 * 30,
-                "resized_width": 28 * 30,
+                "resized_height": 28 * 40,
+                "resized_width": 28 * 40,
             },
             {"type": "text", "text": "Describe this image."},
         ],
@@ -40,7 +40,10 @@ if __name__=="__main__":
     )
     inputs = inputs.to(device)
     # print(inputs['select_mask'].shape)
-    model = Qwen2VLForConditionalGeneration(device=device, dtype=torch.bfloat16)
+    model = Qwen2VLForConditionalGeneration.from_pretrained(
+        model_path, 
+        torch_dtype=torch.bfloat16, 
+        device_map=device)
     
     # print(model)
     start_time = time.time()
