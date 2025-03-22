@@ -438,7 +438,6 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         annotated_image = cv2.cvtColor(boundaries_image, cv2.COLOR_RGB2BGR)
 
         unique_components = np.unique(patch_assign)
-        print(unique_components)
 
         drop_ratio = 0.5
         for comp_id in unique_components:
@@ -478,32 +477,32 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         annotated_image = cv2.cvtColor(boundaries_image, cv2.COLOR_RGB2BGR)
 
         # put patch assign id in every patch
-        for comp_id in unique_components:
-            # if comp_id == 0:  # Skip background
-            #     continue
+        # for comp_id in unique_components:
+        #     # if comp_id == 0:  # Skip background
+        #     #     continue
 
-            # Find component coordinates
-            component_mask = patch_assign == comp_id
-            y_indices, x_indices = np.where(component_mask)
-            # print(y_indices, x_indices)
+        #     # Find component coordinates
+        #     component_mask = patch_assign == comp_id
+        #     y_indices, x_indices = np.where(component_mask)
+        #     # print(y_indices, x_indices)
 
-            if len(y_indices) > 0 and len(x_indices) > 0:
-                # Compute centroid of the bounding box
-                # print(x_indices, y_indices)
-                min_x, max_x = np.min(x_indices), np.max(x_indices)
-                min_y, max_y = np.min(y_indices), np.max(y_indices)
-                center_x = (min_x + max_x) // 2 * patch_size
-                center_y = (min_y + max_y) // 2 * patch_size
-                # Draw number on image
-                cv2.putText(
-                    annotated_image,
-                    str(comp_id),
-                    (center_x + 7, center_y + 14),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.3,  # Font scale
-                    (255, 0, 0),  # Blue color
-                    1,  # Thickness
-                )
+        #     if len(y_indices) > 0 and len(x_indices) > 0:
+        #         # Compute centroid of the bounding box
+        #         # print(x_indices, y_indices)
+        #         min_x, max_x = np.min(x_indices), np.max(x_indices)
+        #         min_y, max_y = np.min(y_indices), np.max(y_indices)
+        #         center_x = (min_x + max_x) // 2 * patch_size
+        #         center_y = (min_y + max_y) // 2 * patch_size
+        #         # Draw number on image
+        #         cv2.putText(
+        #             annotated_image,
+        #             str(comp_id),
+        #             (center_x + 7, center_y + 14),
+        #             cv2.FONT_HERSHEY_SIMPLEX,
+        #             0.3,  # Font scale
+        #             (255, 0, 0),  # Blue color
+        #             1,  # Thickness
+        #         )
 
         # Convert back to PIL Image
         return Image.fromarray(cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB))
