@@ -44,7 +44,7 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from configuration_qwen2_vl import Qwen2VLConfig, Qwen2VLVisionConfig
+from .configuration_qwen2_vl import Qwen2VLConfig, Qwen2VLVisionConfig
 
 
 if is_flash_attn_2_available():
@@ -1124,7 +1124,7 @@ class Qwen2VLPreTrainedModel(PreTrainedModel):
                 module.weight.data[module.padding_idx].zero_()
 
 
-from resampler import PerceiverSdpaResampler
+from .resampler import PerceiverSdpaResampler
 
 class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
     config_class = Qwen2VLVisionConfig

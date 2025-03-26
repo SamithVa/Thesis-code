@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from merge_2d import *
+from .merge_2d import *
 
 class FeedForward(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks """
