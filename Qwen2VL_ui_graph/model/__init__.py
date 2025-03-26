@@ -32,6 +32,8 @@ else:
         "Qwen2VLForConditionalGeneration",
         "Qwen2VLModel",
         "Qwen2VLPreTrainedModel",
+        "Qwen2VLDecoderLayer",
+        "Qwen2VLRotaryEmbedding"
     ]
 
 try:
