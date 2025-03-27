@@ -13,7 +13,12 @@
 # limitations under the License.
 from typing import TYPE_CHECKING
 
-from transformers.utils import OptionalDependencyNotAvailable, _LazyModule, is_torch_available, is_vision_available
+from transformers.utils import (
+    OptionalDependencyNotAvailable,
+    _LazyModule,
+    is_torch_available,
+    is_vision_available,
+)
 
 
 _import_structure = {
@@ -33,7 +38,8 @@ else:
         "Qwen2VLModel",
         "Qwen2VLPreTrainedModel",
         "Qwen2VLDecoderLayer",
-        "Qwen2VLRotaryEmbedding"
+        "Qwen2VLRotaryEmbedding",
+        "Qwen2VLModel",
     ]
 
 try:
@@ -73,4 +79,6 @@ if TYPE_CHECKING:
 else:
     import sys
 
-    sys.modules[__name__] = _LazyModule(__name__, globals()["__file__"], _import_structure)
+    sys.modules[__name__] = _LazyModule(
+        __name__, globals()["__file__"], _import_structure
+    )

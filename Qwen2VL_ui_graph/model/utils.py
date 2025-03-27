@@ -32,3 +32,16 @@ def get_select_mask(tensor, skip_ratio=0, rand=False):
 
             retain_mask[positions_to_retain] = True
     return retain_mask
+
+
+# if __name__ == "__main__":
+#     # Create a random tensor with values in the range [-1, 3]
+#     # Here, -1 represents tokens that must always be selected.
+#     tensor = torch.tensor([-1, -1, 2, 2, 2, 2, -1, -1])
+#     print("Input tensor:")
+#     print(tensor)
+
+#     # Generate the selection mask with skip_ratio=0.5 and random selection enabled.
+#     mask = get_select_mask(tensor, skip_ratio=0.5, rand=True)
+#     print("Selection mask:")
+#     print(mask)

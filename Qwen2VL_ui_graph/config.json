@@ -48,5 +48,7 @@
       24
     ]
   },
-  "vocab_size": 151936
+  "vocab_size": 151936,
+  "lm_skip_layer": "[1,28,0]",
+  "lm_skip_ratio": 0
 }
