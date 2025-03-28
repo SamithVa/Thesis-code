@@ -247,7 +247,7 @@ def main():
     # Load configuration and adjust settings
     config = Qwen2VLConfig.from_json_file("./config.json")
     # config.num_hidden_layers = 10
-    # config._attn_implementation = "flash_attention_2"
+    config._attn_implementation = "flash_attention_2"
     if args.selection:
         config.lm_skip_layer = parse_layer_type("[1,28,1]")
         config.lm_skip_ratio = 0.5

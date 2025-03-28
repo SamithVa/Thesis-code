@@ -7,6 +7,9 @@ from ShowUI.showui.processing_showui import ShowUIProcessor
 from qwen_vl_utils import process_vision_info
 import time, torch, re, argparse
 
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_flash_sdp(False)
+
 
 def parse_layer_type(str_ranges, L=28, default=0):
     # 0 is without layer token selection, 1 is with layer token selection. Below we provide examples:
@@ -81,6 +84,7 @@ if __name__ == "__main__":
             lm_skip_ratio=lm_skip_ratio,
             lm_skip_layer=lm_skip_layer,
             use_cache=args.use_cache,
+            attn_implementation="flash_attention_2",
         )
     else:
         processor = Qwen2VLProcessor.from_pretrained(model_path)
@@ -89,6 +93,7 @@ if __name__ == "__main__":
             torch_dtype=torch.bfloat16,
             device_map=device,
             use_cache=args.use_cache,
+            attn_implementation="flash_attention_2",
         )
 
     messages = [
@@ -98,12 +103,26 @@ if __name__ == "__main__":
                 {
                     "type": "image",
                     "image": "./chrome.png",
-                    "min_pixels": 1344 * 28 * 28,
-                    "max_pixels": 1680 * 28 * 28,
+                },
+                {
+                    "type": "image",
+                    "image": "./coursera.png",
+                },
+                {
+                    "type": "image",
+                    "image": "./coursera-1.jpg",
+                },
+                {
+                    "type": "image",
+                    "image": "./coursera-2.jpg",
+                },
+                {
+                    "type": "image",
+                    "image": "./book.jpg",
                 },
                 {
                     "type": "text",
-                    "text": "Describe this image in more than 200 words`.",
+                    "text": "Describe these images in details.",
                 },
             ],
         }
@@ -122,18 +141,27 @@ if __name__ == "__main__":
     )
     inputs = inputs.to(device)
 
-    # print(model)
-    start_time = time.time()
-    generated_ids = model.generate(**inputs, max_new_tokens=200)
-    torch.cuda.synchronize()
-    elapsed_time = time.time() - start_time
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    start_event.record()
+
+    with torch.no_grad():
+        generated_ids = model.generate(**inputs, max_new_tokens=200)
+
+    end_event.record()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    elapsed_time = start_event.elapsed_time(end_event)
+    print(f"Elapsed Time : {elapsed_time:.2f} ms")
+
     num_generated_tokens = generated_ids.shape[1] - inputs["input_ids"].shape[1]
 
     print(
-        f"Generated_tokens_num : {num_generated_tokens}, TPS : {num_generated_tokens / elapsed_time}"
+        f"Generated_tokens_num : {num_generated_tokens}, TPS : {num_generated_tokens * 1000 / elapsed_time}"
     )
 
-    print(elapsed_time)
     generated_ids_trimmed = [
         out_ids[len(in_ids) :]
         for in_ids, out_ids in zip(inputs.input_ids, generated_ids)

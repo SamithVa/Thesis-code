@@ -18,7 +18,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """PyTorch ShowUI model, inherited from Qwen2-VL."""
-
+import time
 import pdb
 import math
 from dataclasses import dataclass
@@ -47,6 +47,7 @@ from transformers.modeling_outputs import (
 )
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import PreTrainedModel
+
 from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
@@ -108,6 +109,9 @@ class ShowUICausalLMOutputWithPast(ModelOutput):
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     attentions: Optional[Tuple[torch.FloatTensor]] = None
     rope_deltas: Optional[torch.LongTensor] = None
+    decoder_elaped_time: Optional[torch.LongTensor] = None
+    ctx_len: Optional[torch.LongTensor] = None
+    vis_len: Optional[torch.LongTensor] = None
 
 
 class Qwen2VLRotaryEmbedding(nn.Module):
@@ -1180,7 +1184,9 @@ class Qwen2VLDecoderLayer(nn.Module):
         dtype = hidden_states.dtype
         device = hidden_states.device
         layer_skip_ratio = getattr(self, "layer_skip_ratio", 0)
-
+        # print(attention_mask.shape) # attention_mask is 2d here [batch_size, sequence_length]
+        # import sys 
+        # sys.exit()
         if patch_pos is not None and layer_skip_ratio != 0:
             if select_mask is not None:
                 retain_mask = select_mask[0]
@@ -1201,10 +1207,13 @@ class Qwen2VLDecoderLayer(nn.Module):
             adjusted_cos = cos[:, :, retain_mask]
             adjusted_sin = sin[:, :, retain_mask]
             adjusted_position_embeddings = (adjusted_cos, adjusted_sin)
+            adjusted_attention_mask = attention_mask[:, retain_mask]
+
+            processed_hidden_states = hidden_states.clone()
 
             block_outputs = self.navie_forward(
                 hidden_states=selected_hidden_states,
-                attention_mask=attention_mask,
+                attention_mask=adjusted_attention_mask,
                 position_ids=adjusted_position_ids,
                 past_key_value=past_key_value,
                 output_attentions=output_attentions,
@@ -1214,8 +1223,6 @@ class Qwen2VLDecoderLayer(nn.Module):
                 patch_pos=patch_pos,
                 **kwargs,
             )
-
-            processed_hidden_states = hidden_states.clone()  # full hidden_states
 
             if use_cache:
                 processed_hidden_states[:, retain_mask] = block_outputs[0].flatten(0, 1)
@@ -2120,7 +2127,6 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "The image shows a street scene with a red stop sign in the foreground. In the background, there is a large red gate with Chinese characters ..."
         ```"""
-
         output_attentions = (
             output_attentions
             if output_attentions is not None
@@ -2208,7 +2214,10 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
                     delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
-
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        torch.cuda.synchronize()
+        start.record()
         outputs = self.model(
             input_ids=None,
             position_ids=position_ids,
@@ -2223,6 +2232,8 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
             patch_pos=patch_pos,
             select_mask=select_mask,
         )
+        end.record()
+        torch.cuda.synchronize()
 
         hidden_states = outputs[0]
         logits = self.lm_head(hidden_states)
@@ -2253,6 +2264,9 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
             rope_deltas=self.rope_deltas,
+            decoder_elaped_time=start.elapsed_time(end),
+            ctx_len=select_mask.sum() if select_mask != None else -1,
+            vis_len=n_image_tokens,
         )
 
     def prepare_inputs_for_generation(
