@@ -7,9 +7,12 @@ from ShowUI.showui.processing_showui import ShowUIProcessor
 from qwen_vl_utils import process_vision_info
 import time, torch, re, argparse
 
-torch.backends.cuda.enable_mem_efficient_sdp(False)
-torch.backends.cuda.enable_flash_sdp(False)
+from transformers import TextIteratorStreamer
+from threading import Thread
 
+
+# torch.backends.cuda.enable_mem_efficient_sdp(False)
+# torch.backends.cuda.enable_flash_sdp(False)
 
 def parse_layer_type(str_ranges, L=28, default=0):
     # 0 is without layer token selection, 1 is with layer token selection. Below we provide examples:
@@ -24,6 +27,24 @@ def parse_layer_type(str_ranges, L=28, default=0):
         result[start : end + 1] = [value] * (end - start + 1)
     return result
 
+class MyTextStreamer(TextIteratorStreamer):
+    def __init__(self, tokenizer, **kwargs):
+        super().__init__(tokenizer, **kwargs)
+        self.generated_ids = None  # We'll store a tensor here
+
+    def put(self, token_ids):
+        # Ensure token_ids is 2D (batch_size, sequence_length)
+        if token_ids.dim() == 1:
+            token_ids = token_ids.unsqueeze(0)
+        
+        token_ids = token_ids.detach().clone()  # detach to avoid issues
+        
+        if self.generated_ids is None:
+            self.generated_ids = token_ids
+        else:
+            # Concatenate along the sequence dimension (dim=1)
+            self.generated_ids = torch.cat([self.generated_ids, token_ids], dim=1)
+        super().put(token_ids)
 
 if __name__ == "__main__":
 
@@ -37,29 +58,29 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
+    # model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-7B-Instruct" # 7B
     device = "cuda"
 
+    min_pixels = 1344 * 28 * 28
+    max_pixels = 1680 * 28 * 28
+    # 1. Screenshot -> Graph
+    uigraph_train = True  # Enable ui graph during training
+    uigraph_test = True  # Enable ui graph during inference
+    uigraph_diff = 1  # Pixel difference used for constructing ui graph
+    uigraph_rand = False  # Enable random graph construction
+    # 2. Graph -> Mask
+    uimask_pre = True  # Prebuild patch selection mask in the preprocessor (not in model layers) for efficiency
+    uimask_ratio = (
+        0.9  # Specify the percentage of patch tokens to skip per component
+    )
+    uimask_rand = (
+        False  # Enable random token selection instead of uniform selection
+    )
+
     if args.uigraph:
-
-        min_pixels = 1344 * 28 * 28
-        max_pixels = 1680 * 28 * 28
-        # 1. Screenshot -> Graph
-        uigraph_train = True  # Enable ui graph during training
-        uigraph_test = True  # Enable ui graph during inference
-        uigraph_diff = 1  # Pixel difference used for constructing ui graph
-        uigraph_rand = False  # Enable random graph construction
-        # 2. Graph -> Mask
-        uimask_pre = True  # Prebuild patch selection mask in the preprocessor (not in model layers) for efficiency
-        uimask_ratio = (
-            0.9  # Specify the percentage of patch tokens to skip per component
-        )
-        uimask_rand = (
-            False  # Enable random token selection instead of uniform selection
-        )
-
         ### ShowUI Model
         lm_skip_ratio = uimask_ratio  # valid if not uimask_pre
-        lm_skip_layer = "[1,28,1]"  # [1,28,1] means we apply UI guide token selection from 1-th to 28-th layer (28 is the last layer of Qwen2-VL)
+        lm_skip_layer = "[1,14,1]"  # [1,28,1] means we apply UI guide token selection from 1-th to 28-th layer (28 is the last layer of Qwen2-VL)
 
         lm_qwen_layer = 28
         lm_skip_layer = parse_layer_type(lm_skip_layer, 28)
@@ -72,7 +93,7 @@ if __name__ == "__main__":
             uigraph_test=uigraph_test,
             uigraph_diff=uigraph_diff,
             uigraph_rand=uigraph_rand,
-            uimask_pre=True,
+            uimask_pre=uimask_pre,
             uimask_ratio=uimask_ratio,
             uimask_rand=uimask_rand,
         )
@@ -87,15 +108,45 @@ if __name__ == "__main__":
             attn_implementation="flash_attention_2",
         )
     else:
-        processor = Qwen2VLProcessor.from_pretrained(model_path)
-        model = Qwen2VLForConditionalGeneration.from_pretrained(
+        # processor = Qwen2VLProcessor.from_pretrained(model_path)
+        # model = Qwen2VLForConditionalGeneration.from_pretrained(
+        #     model_path,
+        #     torch_dtype=torch.bfloat16,
+        #     device_map=device,
+        #     use_cache=args.use_cache,
+        #     attn_implementation="flash_attention_2",
+        # )
+        lm_skip_ratio = 0  # valid if not uimask_pre
+        lm_skip_layer = "[1,28,1]"  # [1,28,1] means we apply UI guide token selection from 1-th to 28-th layer (28 is the last layer of Qwen2-VL)
+
+        lm_qwen_layer = 28
+        lm_skip_layer = parse_layer_type(lm_skip_layer, 28)
+        processor = ShowUIProcessor.from_pretrained(
+            model_path,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+            uigraph_train=uigraph_train,
+            uigraph_test=uigraph_test,
+            uigraph_diff=uigraph_diff,
+            uigraph_rand=uigraph_rand,
+            uimask_pre=uimask_pre,
+            uimask_ratio=lm_skip_ratio,
+            uimask_rand=uimask_rand,
+        )
+
+        model = ShowUIForConditionalGeneration.from_pretrained(
             model_path,
             torch_dtype=torch.bfloat16,
             device_map=device,
+            lm_skip_ratio=lm_skip_ratio,
+            lm_skip_layer=lm_skip_layer,
             use_cache=args.use_cache,
             attn_implementation="flash_attention_2",
         )
 
+    # streaming output
+
+    
     messages = [
         {
             "role": "user",
@@ -122,7 +173,7 @@ if __name__ == "__main__":
                 },
                 {
                     "type": "text",
-                    "text": "Describe these images in details.",
+                    "text": "Describe these images in details (more than 500 words).",
                 },
             ],
         }
@@ -141,6 +192,18 @@ if __name__ == "__main__":
     )
     inputs = inputs.to(device)
 
+    # Warm-up phase: Run several iterations to mitigate initialization overhead
+    warmup_iterations = 3
+    with torch.no_grad():
+        for i in range(warmup_iterations):
+            _ = model.generate(**inputs, max_new_tokens=200)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+    
+    streamer = MyTextStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
+    generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=500)
+    
+    # Timed inference
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     if torch.cuda.is_available():
@@ -148,30 +211,31 @@ if __name__ == "__main__":
     start_event.record()
 
     with torch.no_grad():
-        generated_ids = model.generate(**inputs, max_new_tokens=200)
+        thread = Thread(target=model.generate, kwargs=generation_kwargs)
+        thread.start()
+        for new_text in streamer:
+            print(new_text, end="", flush=True)
+        thread.join()  # Ensure generation thread has finished
 
+        generated_ids = streamer.generated_ids
     end_event.record()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     elapsed_time = start_event.elapsed_time(end_event)
-    print(f"Elapsed Time : {elapsed_time:.2f} ms")
+    print(f"\nElapsed Time : {elapsed_time:.2f} ms")
 
     num_generated_tokens = generated_ids.shape[1] - inputs["input_ids"].shape[1]
-
     print(
         f"Generated_tokens_num : {num_generated_tokens}, TPS : {num_generated_tokens * 1000 / elapsed_time}"
     )
 
-    generated_ids_trimmed = [
-        out_ids[len(in_ids) :]
-        for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-    ]
-    output_text = processor.batch_decode(
-        generated_ids_trimmed,
-        skip_special_tokens=True,
-        clean_up_tokenization_spaces=False,
-    )
-    print("response", output_text)
-    # start_time = time.time()
-    # elapsed_time = time.time() - start_time
-    # print(f'elased_time : {elapsed_time}')
+    # generated_ids_trimmed = [
+    #     out_ids[len(in_ids) :]
+    #     for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+    # ]
+    # output_text = processor.batch_decode(
+    #     generated_ids_trimmed,
+    #     skip_special_tokens=True,
+    #     clean_up_tokenization_spaces=False,
+    # )
+    # print("response", output_text)

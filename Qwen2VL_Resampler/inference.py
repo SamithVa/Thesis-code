@@ -8,7 +8,7 @@ import time
 
 
 device = 'cuda'
-model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-Resampler"
+model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
 # model_path = "/data/data1/syc/intern/wanshan/models/Qwen2VL_copy"
 
 processor = Qwen2VLProcessor.from_pretrained(model_path, use_fast=False)
@@ -49,7 +49,7 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
     torch_dtype=torch.bfloat16
 )
 
-print(model)
+# print(model)
 
 torch.cuda.synchronize()  # Ensure all computations are finished
 start_time = time.time()

@@ -109,9 +109,9 @@ class ShowUICausalLMOutputWithPast(ModelOutput):
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     attentions: Optional[Tuple[torch.FloatTensor]] = None
     rope_deltas: Optional[torch.LongTensor] = None
-    decoder_elaped_time: Optional[torch.LongTensor] = None
-    ctx_len: Optional[torch.LongTensor] = None
-    vis_len: Optional[torch.LongTensor] = None
+    # decoder_elaped_time: Optional[torch.LongTensor] = None
+    # ctx_len: Optional[torch.LongTensor] = None
+    # vis_len: Optional[torch.LongTensor] = None
 
 
 class Qwen2VLRotaryEmbedding(nn.Module):
@@ -966,6 +966,7 @@ class Qwen2VLDecoderLayer(nn.Module):
         self.hidden_size = config.hidden_size
 
         self.layer_idx = layer_idx
+        self.config = config
         lm_skip_layer = getattr(config, "lm_skip_layer", None)
         if lm_skip_layer:
             self.layer_skip = lm_skip_layer[layer_idx]
@@ -991,6 +992,85 @@ class Qwen2VLDecoderLayer(nn.Module):
         self.post_attention_layernorm = Qwen2RMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
+
+    def _update_causal_mask(
+        self,
+        attention_mask: torch.Tensor,
+        input_tensor: torch.Tensor,
+        cache_position: torch.Tensor,
+        past_key_values: Cache,
+        output_attentions: bool,
+    ):
+        if self.config._attn_implementation == "flash_attention_2":
+            if attention_mask is not None and 0.0 in attention_mask:
+                return attention_mask
+            return None
+
+        # For SDPA, when possible, we will rely on its `is_causal` argument instead of its `attn_mask` argument, in
+        # order to dispatch on Flash Attention 2. This feature is not compatible with static cache, as SDPA will fail
+        # to infer the attention mask.
+        past_seen_tokens = (
+            past_key_values.get_seq_length() if past_key_values is not None else 0
+        )
+        using_static_cache = isinstance(past_key_values, StaticCache)
+        using_sliding_window_cache = isinstance(past_key_values, SlidingWindowCache)
+
+        # When output attentions is True, sdpa implementation's forward method calls the eager implementation's forward
+        if (
+            self.config._attn_implementation == "sdpa"
+            and not (using_static_cache or using_sliding_window_cache)
+            and not output_attentions
+        ):
+            if AttentionMaskConverter._ignore_causal_mask_sdpa(
+                attention_mask,
+                inputs_embeds=input_tensor,
+                past_key_values_length=past_seen_tokens,
+                sliding_window=self.config.sliding_window,
+                is_training=self.training,
+            ):
+                return None
+
+        dtype, device = input_tensor.dtype, input_tensor.device
+        min_dtype = torch.finfo(dtype).min
+        sequence_length = input_tensor.shape[1]
+        # SlidingWindowCache or StaticCache
+        if using_sliding_window_cache or using_static_cache:
+            target_length = past_key_values.get_max_cache_shape()
+        # DynamicCache or no cache
+        else:
+            target_length = (
+                attention_mask.shape[-1]
+                if isinstance(attention_mask, torch.Tensor)
+                else past_seen_tokens + sequence_length + 1
+            )
+
+        # In case the provided `attention` mask is 2D, we generate a causal mask here (4D).
+        causal_mask = self._prepare_4d_causal_attention_mask_with_cache_position(
+            attention_mask,
+            sequence_length=sequence_length,
+            target_length=target_length,
+            dtype=dtype,
+            device=device,
+            cache_position=cache_position,
+            batch_size=input_tensor.shape[0],
+            config=self.config,
+            past_key_values=past_key_values,
+        )
+
+        if (
+            self.config._attn_implementation == "sdpa"
+            and attention_mask is not None
+            and attention_mask.device.type == "cuda"
+            and not output_attentions
+        ):
+            # Attend to all tokens in fully masked rows in the causal_mask, for example the relevant first rows when
+            # using left padding. This is required by F.scaled_dot_product_attention memory-efficient attention path.
+            # Details: https://github.com/pytorch/pytorch/issues/110213
+            causal_mask = AttentionMaskConverter._unmask_unattended(
+                causal_mask, min_dtype
+            )
+
+        return causal_mask
 
     def forward(
         self,
@@ -1135,6 +1215,7 @@ class Qwen2VLDecoderLayer(nn.Module):
 
         return outputs
 
+
     def ui_guide_forward(
         self,
         hidden_states: torch.Tensor,
@@ -1184,18 +1265,12 @@ class Qwen2VLDecoderLayer(nn.Module):
         dtype = hidden_states.dtype
         device = hidden_states.device
         layer_skip_ratio = getattr(self, "layer_skip_ratio", 0)
-        # print(attention_mask.shape) # attention_mask is 2d here [batch_size, sequence_length]
-        # import sys 
-        # sys.exit()
+
         if patch_pos is not None and layer_skip_ratio != 0:
             if select_mask is not None:
                 retain_mask = select_mask[0]
             else:
-                retain_mask = get_select_mask(
-                    patch_pos[0],
-                    layer_skip_ratio,
-                    rand=(self.training and self.layer_skip_rand),
-                ).to(device)
+                retain_mask = get_select_mask(patch_pos[0], layer_skip_ratio, rand=(self.training and self.layer_skip_rand)).to(device)
             # retain_mask = get_select_mask(patch_pos[0], layer_skip_ratio, rand=(self.training and self.layer_skip_rand)).to(device)
 
             selected_hidden_states = hidden_states[:, retain_mask, :]
@@ -1207,13 +1282,10 @@ class Qwen2VLDecoderLayer(nn.Module):
             adjusted_cos = cos[:, :, retain_mask]
             adjusted_sin = sin[:, :, retain_mask]
             adjusted_position_embeddings = (adjusted_cos, adjusted_sin)
-            adjusted_attention_mask = attention_mask[:, retain_mask]
-
-            processed_hidden_states = hidden_states.clone()
 
             block_outputs = self.navie_forward(
                 hidden_states=selected_hidden_states,
-                attention_mask=adjusted_attention_mask,
+                attention_mask=attention_mask,
                 position_ids=adjusted_position_ids,
                 past_key_value=past_key_value,
                 output_attentions=output_attentions,
@@ -1223,16 +1295,17 @@ class Qwen2VLDecoderLayer(nn.Module):
                 patch_pos=patch_pos,
                 **kwargs,
             )
-
-            if use_cache:
-                processed_hidden_states[:, retain_mask] = block_outputs[0].flatten(0, 1)
+            
+            if use_cache: # for decoding only
+                hidden_states[:, retain_mask] = block_outputs[0].flatten(0, 1)
                 present_key_value = block_outputs[1]
-            else:
-                processed_hidden_states[:, retain_mask] = block_outputs[0]
-
-            outputs = (processed_hidden_states,)
-            if use_cache:
+                outputs = (hidden_states,)
                 outputs += (present_key_value,)
+            else: # training, clone for gradient (view is not supported)
+                processed_hidden_states = hidden_states.clone()
+                processed_hidden_states[:, retain_mask] = block_outputs[0]
+                outputs = (processed_hidden_states,)
+                
 
         else:
             outputs = self.navie_forward(
@@ -1243,11 +1316,11 @@ class Qwen2VLDecoderLayer(nn.Module):
                 output_attentions=output_attentions,
                 use_cache=use_cache,
                 cache_position=cache_position,
-                position_embeddings=position_embeddings,
+                position_embeddings=position_embeddings,                
                 patch_pos=patch_pos,
                 **kwargs,
             )
-
+            
         return outputs
 
 
@@ -2234,6 +2307,7 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
         )
         end.record()
         torch.cuda.synchronize()
+        
 
         hidden_states = outputs[0]
         logits = self.lm_head(hidden_states)
@@ -2264,9 +2338,9 @@ class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
             rope_deltas=self.rope_deltas,
-            decoder_elaped_time=start.elapsed_time(end),
-            ctx_len=select_mask.sum() if select_mask != None else -1,
-            vis_len=n_image_tokens,
+            # decoder_elaped_time=start.elapsed_time(end),
+            # ctx_len=select_mask.sum() if select_mask != None else -1,
+            # vis_len=n_image_tokens,
         )
 
     def prepare_inputs_for_generation(
