@@ -656,7 +656,7 @@ class Qwen2VLFlashAttention2(Qwen2VLAttention):
         # Because the input can be padded, the absolute sequence length depends on the max position id.
         cos, sin = position_embeddings
         query_states, key_states = apply_multimodal_rotary_pos_emb(
-            query_states, key_states, cos, sin, self.rope_scaling["mrope_section"]
+            query_states, key_states, cos, sin, self.rope_scaling["mrope_section"] # WHAT IS MROPE Scaling ?
         )
 
         if past_key_value is not None:

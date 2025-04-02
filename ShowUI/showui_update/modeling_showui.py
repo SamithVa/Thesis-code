@@ -1297,23 +1297,20 @@ class Qwen2VLDecoderLayer(nn.Module):
         """
         # import pdb 
         # pdb.set_trace()
-        # dtype = hidden_states.dtype
-        # device = hidden_states.device
+        dtype = hidden_states.dtype
+        device = hidden_states.device
         layer_skip_ratio = getattr(self, "layer_skip_ratio", 0)
     
         if patch_pos is not None and layer_skip_ratio != 0:
-            # if select_mask is not None:
-            #     retain_mask = select_mask[0]
-            # else:
-            #     retain_mask = get_select_mask(patch_pos[0], layer_skip_ratio, rand=(self.training and self.layer_skip_rand)).to(device)
-            
-            retain_mask = select_mask[0]
+            if select_mask is not None:
+                retain_mask = select_mask[0]
+            else:
+                retain_mask = get_select_mask(patch_pos[0], layer_skip_ratio, rand=(self.training and self.layer_skip_rand)).to(device)
+            # retain_mask = get_select_mask(patch_pos[0], layer_skip_ratio, rand=(self.training and self.layer_skip_rand)).to(device)
 
             selected_hidden_states = hidden_states[:, retain_mask, :]
             adjusted_position_ids = position_ids[:, :, retain_mask]
             adjusted_cache_position = cache_position[retain_mask]
-
-            adjusted_attention_mask = attention_mask[:, retain_mask] if attention_mask != None else attention_mask
 
             # apply on position embed
             cos, sin = position_embeddings
@@ -1322,13 +1319,13 @@ class Qwen2VLDecoderLayer(nn.Module):
             adjusted_position_embeddings = (adjusted_cos, adjusted_sin)
 
             # attention_mask 
-            # causal_mask = self._update_causal_mask(
-            #                     adjusted_attention_mask, selected_hidden_states, adjusted_cache_position, past_key_value, output_attentions
-            #     )
+            causal_mask = self._update_causal_mask(
+                                None, selected_hidden_states, adjusted_cache_position, None, output_attentions
+                )
 
             block_outputs = self.navie_forward(
                 hidden_states=selected_hidden_states,
-                attention_mask=adjusted_attention_mask,
+                attention_mask=causal_mask,
                 position_ids=adjusted_position_ids,
                 past_key_value=past_key_value,
                 output_attentions=output_attentions,

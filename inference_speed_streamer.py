@@ -11,8 +11,8 @@ from transformers import TextIteratorStreamer
 from threading import Thread
 
 
-# torch.backends.cuda.enable_mem_efficient_sdp(False)
-# torch.backends.cuda.enable_flash_sdp(False)
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_flash_sdp(False)
 
 def parse_layer_type(str_ranges, L=28, default=0):
     # 0 is without layer token selection, 1 is with layer token selection. Below we provide examples:
@@ -57,8 +57,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
-    # model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-7B-Instruct" # 7B
+    # model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-2B-Instruct"
+    model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-7B-Instruct" # 7B
     device = "cuda"
 
     min_pixels = 1344 * 28 * 28
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     # 2. Graph -> Mask
     uimask_pre = True  # Prebuild patch selection mask in the preprocessor (not in model layers) for efficiency
     uimask_ratio = (
-        0.9  # Specify the percentage of patch tokens to skip per component
+        1  # Specify the percentage of patch tokens to skip per component
     )
     uimask_rand = (
         False  # Enable random token selection instead of uniform selection
@@ -80,10 +80,11 @@ if __name__ == "__main__":
     if args.uigraph:
         ### ShowUI Model
         lm_skip_ratio = uimask_ratio  # valid if not uimask_pre
-        lm_skip_layer = "[1,14,1]"  # [1,28,1] means we apply UI guide token selection from 1-th to 28-th layer (28 is the last layer of Qwen2-VL)
+        lm_skip_layer = "[1,28,1]"  # [1,28,1] means we apply UI guide token selection from 1-th to 28-th layer (28 is the last layer of Qwen2-VL)
 
         lm_qwen_layer = 28
         lm_skip_layer = parse_layer_type(lm_skip_layer, 28)
+        print(lm_skip_layer)
 
         processor = ShowUIProcessor.from_pretrained(
             model_path,
@@ -108,41 +109,45 @@ if __name__ == "__main__":
             attn_implementation="flash_attention_2",
         )
     else:
-        # processor = Qwen2VLProcessor.from_pretrained(model_path)
-        # model = Qwen2VLForConditionalGeneration.from_pretrained(
-        #     model_path,
-        #     torch_dtype=torch.bfloat16,
-        #     device_map=device,
-        #     use_cache=args.use_cache,
-        #     attn_implementation="flash_attention_2",
-        # )
-        lm_skip_ratio = 0  # valid if not uimask_pre
-        lm_skip_layer = "[1,28,1]"  # [1,28,1] means we apply UI guide token selection from 1-th to 28-th layer (28 is the last layer of Qwen2-VL)
-
-        lm_qwen_layer = 28
-        lm_skip_layer = parse_layer_type(lm_skip_layer, 28)
-        processor = ShowUIProcessor.from_pretrained(
+        processor = Qwen2VLProcessor.from_pretrained(
             model_path,
             min_pixels=min_pixels,
             max_pixels=max_pixels,
-            uigraph_train=uigraph_train,
-            uigraph_test=uigraph_test,
-            uigraph_diff=uigraph_diff,
-            uigraph_rand=uigraph_rand,
-            uimask_pre=uimask_pre,
-            uimask_ratio=lm_skip_ratio,
-            uimask_rand=uimask_rand,
         )
-
-        model = ShowUIForConditionalGeneration.from_pretrained(
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
             model_path,
             torch_dtype=torch.bfloat16,
             device_map=device,
-            lm_skip_ratio=lm_skip_ratio,
-            lm_skip_layer=lm_skip_layer,
             use_cache=args.use_cache,
             attn_implementation="flash_attention_2",
         )
+        # lm_skip_ratio = 0  # valid if not uimask_pre
+        # lm_skip_layer = "[1,28,0]"  # [1,28,1] means we apply UI guide token selection from 1-th to 28-th layer (28 is the last layer of Qwen2-VL)
+
+        # lm_qwen_layer = 28
+        # lm_skip_layer = parse_layer_type(lm_skip_layer, 28)
+        # processor = ShowUIProcessor.from_pretrained(
+        #     model_path,
+        #     min_pixels=min_pixels,
+        #     max_pixels=max_pixels,
+        #     uigraph_train=uigraph_train,
+        #     uigraph_test=uigraph_test,
+        #     uigraph_diff=uigraph_diff,
+        #     uigraph_rand=uigraph_rand,
+        #     uimask_pre=uimask_pre,
+        #     uimask_ratio=lm_skip_ratio,
+        #     uimask_rand=uimask_rand,
+        # )
+
+        # model = ShowUIForConditionalGeneration.from_pretrained(
+        #     model_path,
+        #     torch_dtype=torch.bfloat16,
+        #     device_map=device,
+        #     lm_skip_ratio=lm_skip_ratio,
+        #     lm_skip_layer=lm_skip_layer,
+        #     use_cache=args.use_cache,
+        #     attn_implementation="flash_attention_2",
+        # )
 
     # streaming output
 
@@ -155,22 +160,22 @@ if __name__ == "__main__":
                     "type": "image",
                     "image": "./chrome.png",
                 },
-                {
-                    "type": "image",
-                    "image": "./coursera.png",
-                },
-                {
-                    "type": "image",
-                    "image": "./coursera-1.jpg",
-                },
-                {
-                    "type": "image",
-                    "image": "./coursera-2.jpg",
-                },
-                {
-                    "type": "image",
-                    "image": "./book.jpg",
-                },
+                # {
+                #     "type": "image",
+                #     "image": "./coursera.png",
+                # },
+                # {
+                #     "type": "image",
+                #     "image": "./coursera-1.jpg",
+                # },
+                # {
+                #     "type": "image",
+                #     "image": "./coursera-2.jpg",
+                # },
+                # {
+                #     "type": "image",
+                #     "image": "./book.jpg",
+                # },
                 {
                     "type": "text",
                     "text": "Describe these images in details (more than 500 words).",
@@ -201,7 +206,7 @@ if __name__ == "__main__":
                 torch.cuda.synchronize()
     
     streamer = MyTextStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
-    generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=500)
+    generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=200)
     
     # Timed inference
     start_event = torch.cuda.Event(enable_timing=True)
@@ -219,8 +224,8 @@ if __name__ == "__main__":
 
         generated_ids = streamer.generated_ids
     end_event.record()
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
+    torch.cuda.synchronize()
+
     elapsed_time = start_event.elapsed_time(end_event)
     print(f"\nElapsed Time : {elapsed_time:.2f} ms")
 
