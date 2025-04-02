@@ -3,6 +3,14 @@ import torch
 
 
 def get_select_mask(tensor, skip_ratio=0, rand=False):
+    """"
+    Args:
+        tensor: patch_pos [bsz, seq_len]
+            e.g [-1, -1, 1, 1, ..., 2, 3, -1, -1] 
+
+    Return:
+        select mask [bsz, seq_len], bool
+    """
     # Use tensor operations for efficiency
     retain_mask = (tensor == -1).clone()
     unique_vals, counts = torch.unique(
