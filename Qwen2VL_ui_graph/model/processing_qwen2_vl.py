@@ -163,6 +163,7 @@ class Qwen2VLProcessor(ProcessorMixin):
                                                 uigraph_use=uigraph_use, 
                                                 uigraph_diff=self.uigraph_diff, 
                                                 uigraph_rand=self.uigraph_rand, 
+                                                uimask_ratio=self.uimask_ratio,
                                                 vis_dir=vis_dir,
                                                 **output_kwargs["images_kwargs"])
             image_grid_thw = image_inputs["image_grid_thw"]

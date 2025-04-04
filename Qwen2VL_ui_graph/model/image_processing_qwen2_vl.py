@@ -390,7 +390,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
 
         return Image.fromarray(boundaries_image)
 
-    def visualize_uigraph(self, patch_assign, image_size, patch_size, image):
+    def visualize_uigraph(self, patch_assign, image_size, patch_size, image, drop_ratio):
         """
         Visualize UI Graph with uniform patch dropping.
 
@@ -439,33 +439,32 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
 
         unique_components = np.unique(patch_assign)
 
-        drop_ratio = 0.5
         for comp_id in unique_components:
             # Get component coordinates
             component_mask = patch_assign == comp_id
             y_indices, x_indices = np.where(component_mask)
 
-            if len(y_indices) > 2:  # Only drop if there are more than 2 patches
-                num_to_drop = int(len(y_indices) * drop_ratio)
+            if len(y_indices) >= 2 and drop_ratio > 0:  # Only drop if there are more than 2 patches
+                num_to_drop = round(len(y_indices) * drop_ratio)
+                if num_to_drop > 0:
+                    # Random_drop
+                    # drop_indices = np.random.choice(len(y_indices), num_to_drop, replace=False)
 
-                # Random_drop
-                # drop_indices = np.random.choice(len(y_indices), num_to_drop, replace=False)
+                    # Select patches to drop at uniform intervals
+                    step = max(1, len(y_indices) // num_to_drop)  # Ensure even spacing
+                    drop_indices = np.arange(0, len(y_indices), step)[
+                        :num_to_drop
+                    ]  # Select evenly spaced indices
 
-                # Select patches to drop at uniform intervals
-                step = max(1, len(y_indices) // num_to_drop)  # Ensure even spacing
-                drop_indices = np.arange(0, len(y_indices), step)[
-                    :num_to_drop
-                ]  # Select evenly spaced indices
-
-                for idx in drop_indices:
-                    patch_x = x_indices[idx] * patch_size
-                    patch_y = y_indices[idx] * patch_size
-                    drop_mask[
-                        patch_y : patch_y + patch_size, patch_x : patch_x + patch_size
-                    ] = True
+                    for idx in drop_indices:
+                        patch_x = x_indices[idx] * patch_size
+                        patch_y = y_indices[idx] * patch_size
+                        drop_mask[
+                            patch_y : patch_y + patch_size, patch_x : patch_x + patch_size
+                        ] = True
 
         # Apply white mask to dropped patches
-        image[drop_mask] = 0  # Set Black Color Filled
+        image[drop_mask] = 128  # Set Gray Color Filled
 
         # Draw UI graph boundaries
         boundaries_image = mark_boundaries(
@@ -700,6 +699,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         uigraph_use: bool = False,
         uigraph_diff: float = 0.0,
         uigraph_rand: bool = False,
+        uimask_ratio: float = 0.0,
         vis_dir: str = None,
     ):
         """
@@ -855,12 +855,13 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
                     #     self.patch_size * self.merge_size,
                     #     image,
                     # )
-
+                    
                     image_vis = self.visualize_uigraph(
                         uigraph_assign,
                         image_resize,
                         self.patch_size * self.merge_size,
                         image,
+                        drop_ratio = uimask_ratio
                     )
 
                     # pre_num = np.prod(uigraph_assign.shape).item()
