@@ -266,20 +266,26 @@ class PatchEmbed(nn.Module):
 
 
 class PatchMerger(nn.Module):
-    def __init__(self, dim: int, context_dim: int, spatial_merge_size: int = 2) -> None:
+    def __init__(self, dim: int, context_dim: int, spatial_merge_size: int = 2) -> None: # (1536, 1280, 2)
         super().__init__()
-        self.hidden_size = context_dim * (spatial_merge_size**2)
-        self.ln_q = LayerNorm(context_dim, eps=1e-6)
+        self.hidden_size = context_dim * (spatial_merge_size**2) # 1280 * 4
+        self.ln_q = LayerNorm(context_dim, eps=1e-6) 
         self.mlp = nn.Sequential(
-            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.Linear(self.hidden_size, self.hidden_size), # in: 1280 * 4 , out: 1280
             nn.GELU(),
-            nn.Linear(self.hidden_size, dim),
+            nn.Linear(self.hidden_size, dim), # in: 1280 * 4, out: 1536
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        
         x = self.mlp(self.ln_q(x).view(-1, self.hidden_size))
         return x
 
+    """
+    seq_len, contex_dim = 16, 1280
+    -> layer norm, [4, 1280 * 4]
+    -> mlp, [4, 1536]
+    """
 
 class VisionMlp(nn.Module):
     def __init__(self, dim: int, hidden_dim: int, hidden_act: str) -> None:
@@ -976,7 +982,7 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         )
         self.merger = PatchMerger(
             dim=config.hidden_size, context_dim=config.embed_dim, spatial_merge_size=config.spatial_merge_size
-        )
+        ) # (1536, 1280, 2)
         self.gradient_checkpointing = False
 
     def get_dtype(self) -> torch.dtype:

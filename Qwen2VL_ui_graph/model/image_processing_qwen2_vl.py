@@ -366,7 +366,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
 
         upscaled_uigraph_assign = np.repeat(
             np.repeat(uigraph_assign, patch_size, axis=0), patch_size, axis=1
-        )
+        ) # [patches * patch_size, patches * patch_size]
 
         upscaled_uigraph_assign = upscaled_uigraph_assign[
             :resized_height, :resized_width
@@ -377,7 +377,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
 
         # Assuming grayscale or RGB image
         if image.shape[0] in [1, 3]:
-            image = image.transpose(1, 2, 0)
+            image = image.transpose(1, 2, 0) # [c, h, w] -> [h, w, c]
         elif image.shape[2] in [1, 3]:
             pass
         else:

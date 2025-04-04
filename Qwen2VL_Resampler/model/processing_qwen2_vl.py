@@ -28,6 +28,9 @@ from transformers.image_utils import ImageInput, VideoInput
 from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
 from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
 from transformers.utils import logging
+
+from .image_processing_qwen2_vl import Qwen2VLImageProcessor
+
 import torch
 
 logger = logging.get_logger(__name__)
@@ -81,12 +84,16 @@ class Qwen2VLProcessor(ProcessorMixin):
         self.image_token = "<|image_pad|>" if not hasattr(tokenizer, "image_token") else tokenizer.image_token
         self.video_token = "<|video_pad|>" if not hasattr(tokenizer, "video_token") else tokenizer.video_token
         super().__init__(image_processor, tokenizer, chat_template=chat_template)
+        # inherited from Qwen2-VL.        
+        self.image_processor = Qwen2VLImageProcessor(**vars(image_processor))
 
     def __call__(
         self,
         images: ImageInput = None,
         text: Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]] = None,
         videos: VideoInput = None,
+        vis_dir: str = None,
+        select_mask: object = None, 
         **kwargs: Unpack[Qwen2VLProcessorKwargs],
     ) -> BatchFeature:
         """
@@ -131,7 +138,12 @@ class Qwen2VLProcessor(ProcessorMixin):
             **kwargs,
         )
         if images is not None:
-            image_inputs = self.image_processor(images=images, videos=None, **output_kwargs["images_kwargs"])
+            image_inputs = self.image_processor(
+                images=images, 
+                videos=None,
+                vis_dir=vis_dir, # visualization 
+                select_mask=select_mask, # visualization
+                **output_kwargs["images_kwargs"])
             image_grid_thw = image_inputs["image_grid_thw"]
         else:
             image_inputs = {}

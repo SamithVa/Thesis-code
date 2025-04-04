@@ -21,6 +21,8 @@
 
 import math
 from typing import Dict, List, Optional, Union
+import cv2 
+from PIL import Image
 
 import numpy as np
 
@@ -221,6 +223,9 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         height, width = get_image_size(images[0], channel_dim=input_data_format)
         resized_height, resized_width = height, width
         processed_images = []
+
+        processed_resize = []  # for visualization
+
         for image in images:
             if do_resize:
                 resized_height, resized_width = smart_resize(
@@ -244,6 +249,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
 
             image = to_channel_dimension_format(image, data_format, input_channel_dim=input_data_format)
             processed_images.append(image)
+            processed_resize.append((resized_height, resized_width))
         
         patches = np.array(processed_images)
         if data_format == ChannelDimension.LAST:
@@ -270,7 +276,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
             grid_t * grid_h * grid_w, channel * self.temporal_patch_size * self.patch_size * self.patch_size
         )
 
-        return flatten_patches, (grid_t, grid_h, grid_w)
+        return flatten_patches, (grid_t, grid_h, grid_w), processed_resize
 
     def preprocess(
         self,
@@ -288,6 +294,8 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         return_tensors: Optional[Union[str, TensorType]] = None,
         data_format: Optional[ChannelDimension] = ChannelDimension.FIRST,
         input_data_format: Optional[Union[str, ChannelDimension]] = None,
+        vis_dir: str = None,
+        select_mask: object = None
     ):
         """
         Args:
@@ -372,7 +380,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         if images is not None:
             pixel_values, vision_grid_thws = [], []
             for image in images:
-                patches, image_grid_thw = self._preprocess(
+                patches, image_grid_thw, image_resize = self._preprocess(
                     image,
                     do_resize=do_resize,
                     resample=resample,
@@ -387,6 +395,16 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
                 )
                 pixel_values.extend(patches)
                 vision_grid_thws.append(image_grid_thw)
+                if vis_dir is not None and select_mask is not None:
+                    image_vis = self.visualize_uigraph(
+                        select_mask=select_mask,
+                        grid_thw=image_grid_thw,
+                        image_size=image_resize,
+                        patch_size=self.patch_size * self.merge_size,
+                        image = image,
+                    )
+                    image_vis.save(f"{vis_dir}/demo.png")
+                    
             pixel_values = np.array(pixel_values)
             vision_grid_thws = np.array(vision_grid_thws)
             data = {"pixel_values": pixel_values, "image_grid_thw": vision_grid_thws}
@@ -414,6 +432,55 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
             data = {"pixel_values_videos": pixel_values, "video_grid_thw": vision_grid_thws}
 
         return BatchFeature(data=data, tensor_type=return_tensors)
+    
+    def visualize_uigraph(self, select_mask, grid_thw, image_size, patch_size, image):
+        """
+        Visualize image according to a boolean patch selection mask.
+        For patches where the mask is True, the original image is displayed.
+        For patches where the mask is False, the image is masked with a gray color.
+
+        Args:
+            select_mask: (1d) Boolean numpy array of shape (n_patches_h, n_patches_w) indicating which patches are selected.
+            image_size: Tuple (height, width) of the resized image.
+            patch_size: Integer, the size of each patch (e.g., 14).
+            image: Input image (PIL.Image or numpy array).
+
+        Returns:
+            PIL.Image with the visualization.
+        """
+        # reshape select_mask 1d -> 2d (h_half, w_half)
+        t, h, w = grid_thw 
+        h_half, w_half = h // self.merge_size, w // self.merge_size
+        select_mask = select_mask.reshape(h_half, w_half)
+
+        # Unpack the resized image dimensions.
+        resized_height, resized_width = image_size[0]
+
+        # Convert to numpy array if image is a PIL.Image.
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+
+        # Convert image to HWC (height, width, channels) format if needed.
+        # Assume that if the first dimension is small (1 or 3), then the image is in CHW format.
+        if image.shape[0] in [1, 3]:
+            image = image.transpose(1, 2, 0)
+
+        # Upscale the boolean mask so that each patch is repeated patch_size times along both dimensions.
+        # The select_mask is assumed to be of shape (n_patches_h, n_patches_w).
+        upscaled_mask = np.repeat(np.repeat(select_mask, patch_size, axis=0), patch_size, axis=1)
+        upscaled_mask = upscaled_mask[:resized_height, :resized_width]
+
+        # Create a copy of the image to modify.
+        mod_image = image.copy()
+
+        # For pixels where the upscaled mask is False, assign a gray value (128) to all channels.
+        mod_image[~upscaled_mask] = 128
+
+        # Convert back to a PIL.Image and return.
+        return Image.fromarray(mod_image)
+
+        # Convert back to PIL Image
+        # return Image.fromarray(cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB))
 
 
 __all__ = ["Qwen2VLImageProcessor"]

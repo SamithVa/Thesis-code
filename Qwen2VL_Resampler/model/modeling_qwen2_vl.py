@@ -1135,7 +1135,7 @@ class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
     def __init__(self, config) -> None:
         super().__init__(config)
         self.spatial_merge_size = config.spatial_merge_size
-        self.visual_token_ratio = 0.8
+        self.retain_ratio = getattr(config, 'retain_ratio', 1)
 
         self.patch_embed = PatchEmbed(
             patch_size=config.patch_size,
@@ -1217,7 +1217,7 @@ class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
             else:
                 hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, position_embeddings=position_embeddings)
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
-        selected_mask = self_soft_matching_2d(metric = merge)
+        selected_mask = self_soft_matching_2d(metric = merge, r=self.retain_ratio)
         return merge, selected_mask
 
 
@@ -1603,8 +1603,10 @@ QWEN2_VL_INPUTS_DOCSTRING = r"""
 class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config):
+    def __init__(self, config, **kwargs):
         super().__init__(config)
+        if "retain_ratio" in kwargs:
+            setattr(config.vision_config, "retain_ratio", kwargs['retain_ratio'])
         self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(config.vision_config)
         self.model = Qwen2VLModel(config)
         self.vocab_size = config.vocab_size
