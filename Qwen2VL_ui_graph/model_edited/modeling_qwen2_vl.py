@@ -985,13 +985,99 @@ class Qwen2VLDecoderLayer(nn.Module):
         super().__init__()
         self.hidden_size = config.hidden_size
 
+        if config.use_sliding_window and config._attn_implementation != "flash_attention_2":
+            logger.warning_once(
+                f"Sliding Window Attention is enabled but not implemented for `{config._attn_implementation}`; "
+                "unexpected results may be encountered."
+            )
+        self.self_attn = QWEN2_VL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx)
+
+        self.mlp = Qwen2MLP(config)
+        self.input_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        output_attentions: Optional[bool] = False,
+        use_cache: Optional[bool] = False,
+        cache_position: Optional[torch.LongTensor] = None,
+        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
+        **kwargs,
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        """
+        Args:
+            hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
+            attention_mask (`torch.FloatTensor`, *optional*): attention mask of size
+                `(batch, sequence_length)` where padding elements are indicated by 0.
+            output_attentions (`bool`, *optional*):
+                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
+                returned tensors for more detail.
+            use_cache (`bool`, *optional*):
+                If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
+                (see `past_key_values`).
+            past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
+            cache_position (`torch.LongTensor` of shape `(sequence_length)`, *optional*):
+                Indices depicting the position of the input sequence tokens in the sequence.
+            position_embeddings (`Tuple[torch.FloatTensor, torch.FloatTensor]`, *optional*):
+                Tuple containing the cosine and sine positional embeddings of shape `(batch_size, seq_len, head_dim)`,
+                with `head_dim` being the embedding dimension of each attention head.
+            kwargs (`dict`, *optional*):
+                Arbitrary kwargs to be ignored, used for FSDP and other methods that injects code
+                into the model
+        """
+
+        # import pdb
+        # pdb.set_trace()
+        residual = hidden_states
+        hidden_states = self.input_layernorm(hidden_states)
+
+        # Self Attention
+        hidden_states, self_attn_weights, present_key_value = self.self_attn(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_value=past_key_value,
+            output_attentions=output_attentions,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            position_embeddings=position_embeddings,
+        )
+        hidden_states = residual + hidden_states
+
+        # Fully Connected
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        hidden_states = residual + hidden_states
+
+        outputs = (hidden_states,)
+
+        if output_attentions:
+            outputs += (self_attn_weights,)
+
+        if use_cache:
+            outputs += (present_key_value,)
+
+        return outputs
+
+
+class Qwen2VLDecoderLayerUIGraph(nn.Module):
+    def __init__(self, config: Qwen2VLConfig, layer_idx: int):
+        super().__init__()
+        self.hidden_size = config.hidden_size
+
         self.layer_idx = layer_idx
-        lm_skip_layer = getattr(config, "lm_skip_layer", None)
-        if lm_skip_layer:
-            self.layer_skip = lm_skip_layer[layer_idx]
-        else:
-            self.layer_skip = 0
-        self.layer_skip_ratio = getattr(config, "lm_skip_ratio", 0)
+
+        # lm_skip_layer = getattr(config, "lm_skip_layer", None)
+        # if lm_skip_layer:
+        #     self.layer_skip = lm_skip_layer[layer_idx]
+        # else:
+        #     self.layer_skip = 0
+        # self.layer_skip_ratio = getattr(config, "lm_skip_ratio", 0)
 
         if (
             config.use_sliding_window
@@ -1393,6 +1479,8 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
+        self.prune_layer = config.prune_layer # pruning
+
         self.embed_tokens = nn.Embedding(
             config.vocab_size, config.hidden_size, self.padding_idx
         )
@@ -1405,7 +1493,6 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         self._attn_implementation = config._attn_implementation
         self.norm = Qwen2RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = Qwen2VLRotaryEmbedding(config=config)
-
         self.gradient_checkpointing = False
         # Initialize weights and apply final processing
         self.post_init()
@@ -1502,7 +1589,7 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
 
-        for decoder_layer in self.layers:
+        for i, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
@@ -1521,18 +1608,44 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                     select_mask,
                 )
             else:
-                layer_outputs = decoder_layer(
-                    hidden_states,
-                    attention_mask=causal_mask,
-                    position_ids=position_ids,
-                    past_key_value=past_key_values,
-                    output_attentions=output_attentions,
-                    use_cache=use_cache,
-                    cache_position=cache_position,
-                    position_embeddings=position_embeddings,
-                    patch_pos=patch_pos,
-                    select_mask=select_mask,
-                )
+                if i != self.prune_layer:
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=causal_mask,
+                        position_ids=position_ids,
+                        past_key_value=past_key_values,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                        cache_position=cache_position,
+                        position_embeddings=position_embeddings,
+                        patch_pos=patch_pos,
+                        select_mask=select_mask,
+                    )
+                elif i == self.prune_layer and select_mask is not None:
+                    retain_mask = select_mask[0] 
+                    hidden_states = hidden_states[:, retain_mask, :] # [bsz, seq_len, emb_dim]
+                    position_ids = position_ids[:, :, retain_mask] # ?
+                    cache_position = cache_position[retain_mask]
+
+                    # apply on position embed
+                    cos, sin = position_embeddings
+                    adjusted_cos = cos[:, :, retain_mask]
+                    adjusted_sin = sin[:, :, retain_mask]
+                    position_embeddings = (adjusted_cos, adjusted_sin)
+
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=causal_mask,
+                        position_ids=position_ids,
+                        past_key_value=past_key_values,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                        cache_position=cache_position,
+                        position_embeddings=position_embeddings,
+                        patch_pos=patch_pos,
+                        select_mask=select_mask,
+                    )
+
 
             hidden_states = layer_outputs[0]
 
@@ -1839,6 +1952,9 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             config.vision_config.vis_skip_ratio = kwargs["vis_skip_ratio"]
         if "vis_skip_fine" in kwargs:
             config.vision_config.vis_skip_fine = kwargs["vis_skip_fine"]
+
+        if "prune_layer" in kwargs:
+            setattr(config, "prune_layer", kwargs["prune_layer"])
 
         self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(
             config.vision_config
