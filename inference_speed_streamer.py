@@ -201,15 +201,15 @@ if __name__ == "__main__":
     inputs = inputs.to(device)
 
     # Warm-up phase: Run several iterations to mitigate initialization overhead
-    # warmup_iterations = 3
-    # with torch.no_grad():
-    #     for i in range(warmup_iterations):
-    #         _ = model.generate(**inputs, max_new_tokens=200)
-    #         if torch.cuda.is_available():
-    #             torch.cuda.synchronize()
+    warmup_iterations = 1
+    with torch.no_grad():
+        for i in range(warmup_iterations):
+            _ = model.generate(**inputs, max_new_tokens=200)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
     
     streamer = MyTextStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
-    generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=1)
+    generation_kwargs = dict(inputs, streamer=streamer, max_new_tokens=2)
     
     # Timed inference
     start_event = torch.cuda.Event(enable_timing=True)

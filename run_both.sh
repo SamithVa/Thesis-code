@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SESSION="wanshan"
+SESSION="test_infer_speed"
 
 # tmux new-session -d -s $SESSION
 
@@ -11,10 +11,10 @@ SESSION="wanshan"
 sleep 1
 
 # Clear both panes before running commands
-tmux send-keys -t $SESSION:1.0 "clear" C-m
-tmux send-keys -t $SESSION:1.1 "clear" C-m
+tmux send-keys -t $SESSION:0.0 "clear" C-m
+tmux send-keys -t $SESSION:0.1 "clear" C-m
 
 sleep 0.5
 
-tmux send-keys -t $SESSION:1.0 "CUDA_VISIBLE_DEVICES=2 python inference_speed_streamer.py --use_cache --uigraph" C-m
-tmux send-keys -t $SESSION:1.1 "CUDA_VISIBLE_DEVICES=3 python inference_speed_streamer.py --use_cache" C-m
+tmux send-keys -t $SESSION:0.0 "CUDA_VISIBLE_DEVICES=2 python inference_speed_streamer.py --use_cache --uigraph" C-m
+tmux send-keys -t $SESSION:0.1 "CUDA_VISIBLE_DEVICES=3 python inference_speed_streamer.py --use_cache" C-m
