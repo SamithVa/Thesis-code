@@ -1,5 +1,5 @@
-from model_edited.modeling_qwen2_vl import Qwen2VLForConditionalGeneration
-from model_edited.processing_qwen2_vl import Qwen2VLProcessor
+from model_uigraph_edited.modeling_qwen2_vl import Qwen2VLForConditionalGeneration
+from model_uigraph_edited.processing_qwen2_vl import Qwen2VLProcessor
 from qwen_vl_utils import process_vision_info
 import time 
 import torch

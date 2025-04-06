@@ -629,6 +629,7 @@ class Qwen2VLAttention(nn.Module):
             self.head_dim,
             max_position_embeddings=self.max_position_embeddings,
             base=self.rope_theta,
+            config=config
         )
 
     def forward(
@@ -1923,26 +1924,9 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             config.skip_rand = kwargs["skip_rand"]
             config.vision_config.skip_rand = kwargs["skip_rand"]
 
-        def parse_layer_type(
-            str_ranges, L=28, default=0
-        ):  # L by default is 28 because Qwen2VL has 28 decoder layers
-            # 0 is without layer token selection, 1 is with layer token selection. Below we provide examples:
-            # [1,28,1] means that all LM layers use token selection; [1,28,0] means that do not.
-            # Interleaved layer-wise '[2,2,1],[4,4,1],[6,6,1],[8,8,1],[10,10,1],[12,12,1],[14,14,1],[16,16,1],[18,18,1],[20,20,1],[22,22,1],[24,24,1],[26,26,1]'
-            result = [default] * L
-            matches = re.findall(r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]", str_ranges)
-            for start, end, value in matches:
-                start, end, value = int(start) - 1, int(end) - 1, int(value)
-                if end >= L:
-                    end = L - 1
-                result[start : end + 1] = [value] * (end - start + 1)
-            return result
-
         if "lm_skip_layer" in kwargs:
             config.lm_skip_layer = kwargs["lm_skip_layer"]
-        else:  # loading from Qwen2VL Config
-            lm_skip_layer_str = config.lm_skip_layer
-            config.lm_skip_layer = parse_layer_type(lm_skip_layer_str)
+
         if "lm_skip_ratio" in kwargs:
             config.lm_skip_ratio = kwargs["lm_skip_ratio"]
 
