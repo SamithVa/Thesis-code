@@ -1,3 +1,6 @@
+# coding=utf-8
+# Copyright 2024 The Show Lab, National University of Singapore and the HuggingFace Inc. team. All rights reserved.
+#
 # This code is based on EleutherAI's GPT-NeoX library and the GPT-NeoX
 # and OPT implementations in this library. It has been modified from its
 # original forms to accommodate minor architectural differences compared
@@ -14,14 +17,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""PyTorch model, inherited from Qwen2-VL."""
-
+"""PyTorch ShowUI model, inherited from Qwen2-VL."""
+import time
 import pdb
 import math
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
-import re
 
 import torch
 import torch.nn as nn
@@ -46,6 +47,7 @@ from transformers.modeling_outputs import (
 )
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import PreTrainedModel
+
 from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
@@ -54,7 +56,7 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from .configuration_qwen2_vl import Qwen2VLConfig, Qwen2VLVisionConfig
+from .configuration_showui import Qwen2VLConfig, Qwen2VLVisionConfig
 from .utils import get_select_mask
 
 if is_flash_attn_2_available():
@@ -71,9 +73,9 @@ _CONFIG_FOR_DOC = "Qwen2VLConfig"
 
 
 @dataclass
-class Qwen2VLCausalLMOutputWithPast(ModelOutput):
+class ShowUICausalLMOutputWithPast(ModelOutput):
     """
-    Base class for Qwen2VL causal language model (or autoregressive) outputs.
+    Base class for ShowUI causal language model (or autoregressive) outputs.
 
     Args:
         loss (`torch.FloatTensor` of shape `(1,)`, *optional*, returned when `labels` is provided):
@@ -107,9 +109,11 @@ class Qwen2VLCausalLMOutputWithPast(ModelOutput):
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     attentions: Optional[Tuple[torch.FloatTensor]] = None
     rope_deltas: Optional[torch.LongTensor] = None
+    # decoder_elaped_time: Optional[torch.LongTensor] = None
+    # ctx_len: Optional[torch.LongTensor] = None
+    # vis_len: Optional[torch.LongTensor] = None
 
 
-# ---------- Visual Module
 class Qwen2VLRotaryEmbedding(nn.Module):
     def __init__(
         self,
@@ -364,7 +368,6 @@ class VisionMlp(nn.Module):
         return self.fc2(self.act(self.fc1(x)))
 
 
-# Vision Attention Classes
 class VisionAttention(nn.Module):
     def __init__(self, dim: int, num_heads: int = 16) -> None:
         super().__init__()
@@ -578,7 +581,6 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
 
-# Qwen2VL : Decoder Attention Class
 class Qwen2VLAttention(nn.Module):
     """
     Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
@@ -882,6 +884,7 @@ class Qwen2VLSdpaAttention(Qwen2VLAttention):
                 cache_position=cache_position,
                 position_embeddings=position_embeddings,
             )
+
         bsz, q_len, _ = hidden_states.size()
 
         query_states = self.q_proj(hidden_states)
@@ -956,42 +959,21 @@ QWEN2_VL_ATTENTION_CLASSES = {
     "sdpa": Qwen2VLSdpaAttention,
 }
 
-QWEN2VL_START_DOCSTRING = r"""
-    This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
-    library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
-    etc.)
 
-    This model is also a PyTorch [torch.nn.Module](https://pytorch.org/docs/stable/nn.html#torch.nn.Module) subclass.
-    Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general usage
-    and behavior.
-
-    Parameters:
-        config ([`Qwen2VLConfig`]):
-            Model configuration class with all the parameters of the model. Initializing with a config file does not
-            load the weights associated with the model, only the configuration. Check out the
-            [`~PreTrainedModel.from_pretrained`] method to load the model weights.
-"""
-
-
-# ---------- LLM Module
-
-
-@add_start_docstrings(
-    "The bare Qwen2VL Model outputting raw hidden-states without any specific head on top.",
-    QWEN2VL_START_DOCSTRING,
-)
 class Qwen2VLDecoderLayer(nn.Module):
     def __init__(self, config: Qwen2VLConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
 
         self.layer_idx = layer_idx
+        self.config = config
         lm_skip_layer = getattr(config, "lm_skip_layer", None)
         if lm_skip_layer:
             self.layer_skip = lm_skip_layer[layer_idx]
         else:
             self.layer_skip = 0
         self.layer_skip_ratio = getattr(config, "lm_skip_ratio", 0)
+        # self.layer_skip_rand = getattr(config, "skip_rand", False)
 
         if (
             config.use_sliding_window
@@ -1010,8 +992,85 @@ class Qwen2VLDecoderLayer(nn.Module):
         self.post_attention_layernorm = Qwen2RMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
-        # This layer computes a score for each token.
-        self.token_selector = nn.Linear(config.hidden_size, 1)
+
+    def _update_causal_mask(
+        self,
+        attention_mask: torch.Tensor,
+        input_tensor: torch.Tensor,
+        cache_position: torch.Tensor,
+        past_key_values: Cache,
+        output_attentions: bool,
+    ):
+        if self.config._attn_implementation == "flash_attention_2":
+            if attention_mask is not None and 0.0 in attention_mask:
+                return attention_mask
+            return None
+
+        # For SDPA, when possible, we will rely on its `is_causal` argument instead of its `attn_mask` argument, in
+        # order to dispatch on Flash Attention 2. This feature is not compatible with static cache, as SDPA will fail
+        # to infer the attention mask.
+        past_seen_tokens = (
+            past_key_values.get_seq_length() if past_key_values is not None else 0
+        )
+        using_static_cache = isinstance(past_key_values, StaticCache)
+        using_sliding_window_cache = isinstance(past_key_values, SlidingWindowCache)
+
+        # When output attentions is True, sdpa implementation's forward method calls the eager implementation's forward
+        if (
+            self.config._attn_implementation == "sdpa"
+            and not (using_static_cache or using_sliding_window_cache)
+            and not output_attentions
+        ):
+            if AttentionMaskConverter._ignore_causal_mask_sdpa(
+                attention_mask,
+                inputs_embeds=input_tensor,
+                past_key_values_length=past_seen_tokens,
+                sliding_window=self.config.sliding_window,
+                is_training=self.training,
+            ):
+                return None
+
+        dtype, device = input_tensor.dtype, input_tensor.device
+        min_dtype = torch.finfo(dtype).min
+        sequence_length = input_tensor.shape[1]
+        # SlidingWindowCache or StaticCache
+        if using_sliding_window_cache or using_static_cache:
+            target_length = past_key_values.get_max_cache_shape()
+        # DynamicCache or no cache
+        else:
+            target_length = (
+                attention_mask.shape[-1]
+                if isinstance(attention_mask, torch.Tensor)
+                else past_seen_tokens + sequence_length + 1
+            )
+
+        # In case the provided `attention` mask is 2D, we generate a causal mask here (4D).
+        causal_mask = self._prepare_4d_causal_attention_mask_with_cache_position(
+            attention_mask,
+            sequence_length=sequence_length,
+            target_length=target_length,
+            dtype=dtype,
+            device=device,
+            cache_position=cache_position,
+            batch_size=input_tensor.shape[0],
+            config=self.config,
+            past_key_values=past_key_values,
+        )
+
+        if (
+            self.config._attn_implementation == "sdpa"
+            and attention_mask is not None
+            and attention_mask.device.type == "cuda"
+            and not output_attentions
+        ):
+            # Attend to all tokens in fully masked rows in the causal_mask, for example the relevant first rows when
+            # using left padding. This is required by F.scaled_dot_product_attention memory-efficient attention path.
+            # Details: https://github.com/pytorch/pytorch/issues/110213
+            causal_mask = AttentionMaskConverter._unmask_unattended(
+                causal_mask, min_dtype
+            )
+
+        return causal_mask
 
     def forward(
         self,
@@ -1097,7 +1156,7 @@ class Qwen2VLDecoderLayer(nn.Module):
         position_embeddings: Optional[
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # necessary, but kept here for BC
-        **kwargs,
+        # **kwargs,
     ) -> Tuple[
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
     ]:
@@ -1175,7 +1234,7 @@ class Qwen2VLDecoderLayer(nn.Module):
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
     ]:
         """
-        implements UI-guided token selection construction on top of Navie self-attention block.
+        ShowUI implements UI-guided token selection construction on top of Navie self-attention block.
 
         Args:
             hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
@@ -1202,43 +1261,48 @@ class Qwen2VLDecoderLayer(nn.Module):
                 into the model
         """
 
-        dtype = hidden_states.dtype
-        device = hidden_states.device
-        layer_skip_ratio = getattr(self, "layer_skip_ratio", 0)
-        # print("uigraph forward is caleed", layer_skip_ratio)
-        selection_loss = None  # Initialize auxiliary loss
+        # device = hidden_states.device
+        # layer_skip_ratio = getattr(self, "layer_skip_ratio", 0)
 
-        if patch_pos is not None and layer_skip_ratio != 0 and self.layer_idx == 0:
-            # Compute learnable token selection scores.
-            token_logits = self.token_selector(hidden_states)  # Shape: (batch, seq_len, 1)
-            token_prob = torch.sigmoid(token_logits).squeeze(-1)  # Shape: (batch, seq_len)
+        if select_mask is not None:
+            # if select_mask is not None:
+            retain_mask = select_mask[0]
+            # else:
+            #     retain_mask = get_select_mask(patch_pos[0], layer_skip_ratio, rand=(self.training and self.layer_skip_rand)).to(device)
 
-            # Compute selection loss if a target select_mask is provided.
-            if select_mask is not None:
-                # Ensure select_mask is of type float and in the same range as token_prob
-                loss_fn = nn.BCELoss()
-                selection_loss = loss_fn(token_prob, select_mask.float())
+            selected_hidden_states = hidden_states[:, retain_mask, :]
+            adjusted_position_ids = position_ids[:, :, retain_mask]
+            adjusted_cache_position = cache_position[retain_mask]
 
-            # Option 1: Use soft selection by weighting hidden states.
-            weighted_hidden_states = hidden_states * token_prob.unsqueeze(-1)
+            # apply on position embed
+            cos, sin = position_embeddings
+            adjusted_cos = cos[:, :, retain_mask]
+            adjusted_sin = sin[:, :, retain_mask]
+            adjusted_position_embeddings = (adjusted_cos, adjusted_sin)
 
-            # Proceed with self-attention on the weighted tokens.
             block_outputs = self.navie_forward(
-                hidden_states=weighted_hidden_states,
+                hidden_states=selected_hidden_states,
                 attention_mask=attention_mask,
-                position_ids=position_ids,
+                position_ids=adjusted_position_ids,
                 past_key_value=past_key_value,
                 output_attentions=output_attentions,
                 use_cache=use_cache,
-                cache_position=cache_position,
-                position_embeddings=position_embeddings,
-                patch_pos=patch_pos,
-                **kwargs,
+                cache_position=adjusted_cache_position,
+                position_embeddings=adjusted_position_embeddings,
+                # patch_pos=patch_pos,
+                # **kwargs,
             )
+            
+            if use_cache: # for decoding only
+                hidden_states[:, retain_mask] = block_outputs[0]
+                present_key_value = block_outputs[1]
+                outputs = (hidden_states,)
+                outputs += (present_key_value,)
+            else: # training, clone for gradient (view is not supported)
+                processed_hidden_states = hidden_states.clone()
+                processed_hidden_states[:, retain_mask] = block_outputs[0]
+                outputs = (processed_hidden_states,)
 
-            outputs = (block_outputs[0],)
-            if use_cache:
-                outputs += (block_outputs[1],)
         else:
             outputs = self.navie_forward(
                 hidden_states=hidden_states,
@@ -1248,17 +1312,40 @@ class Qwen2VLDecoderLayer(nn.Module):
                 output_attentions=output_attentions,
                 use_cache=use_cache,
                 cache_position=cache_position,
-                position_embeddings=position_embeddings,
-                patch_pos=patch_pos,
-                **kwargs,
+                position_embeddings=position_embeddings,                
+                # patch_pos=patch_pos,
+                # **kwargs,
             )
+            
+        return outputs
 
-        # Return outputs along with the auxiliary selection loss so it can be used during training.
-        return outputs + (selection_loss,)
+
+QWEN2VL_START_DOCSTRING = r"""
+    This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
+    library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
+    etc.)
+
+    This model is also a PyTorch [torch.nn.Module](https://pytorch.org/docs/stable/nn.html#torch.nn.Module) subclass.
+    Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general usage
+    and behavior.
+
+    Parameters:
+        config ([`Qwen2VLConfig`]):
+            Model configuration class with all the parameters of the model. Initializing with a config file does not
+            load the weights associated with the model, only the configuration. Check out the
+            [`~PreTrainedModel.from_pretrained`] method to load the model weights.
+"""
+
+SHOWUI_START_DOCSTRING = r"""
+    This model inherits from [`PreTrainedModel`] and supports UI-guided visual token selection built on top of `Qwen2VLPreTrainedModel`.
+"""
 
 
-@add_start_docstrings(QWEN2VL_START_DOCSTRING)
-class Qwen2VLPreTrainedModel(PreTrainedModel):
+@add_start_docstrings(
+    "The bare sHOWui Model outputting raw hidden-states without any specific head on top.",
+    SHOWUI_START_DOCSTRING,
+)
+class ShowUIPreTrainedModel(PreTrainedModel):
     config_class = Qwen2VLConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
@@ -1281,7 +1368,7 @@ class Qwen2VLPreTrainedModel(PreTrainedModel):
                 module.weight.data[module.padding_idx].zero_()
 
 
-class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
+class ShowUIVisionTransformerPretrainedModel(ShowUIPreTrainedModel):
     config_class = Qwen2VLVisionConfig
     _no_split_modules = ["Qwen2VLVisionBlock"]
 
@@ -1378,7 +1465,11 @@ class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         return self.merger(hidden_states)
 
 
-class Qwen2VLModel(Qwen2VLPreTrainedModel):
+@add_start_docstrings(
+    "The bare Qwen2VL Model outputting raw hidden-states without any specific head on top.",
+    QWEN2VL_START_DOCSTRING,
+)
+class ShowUIModel(ShowUIPreTrainedModel):
     def __init__(self, config: Qwen2VLConfig):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
@@ -1792,7 +1883,7 @@ QWEN2_VL_INPUTS_DOCSTRING = r"""
 """
 
 
-class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
+class ShowUIForConditionalGeneration(ShowUIPreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
     def __init__(self, config, **kwargs):
@@ -1801,26 +1892,8 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             config.skip_rand = kwargs["skip_rand"]
             config.vision_config.skip_rand = kwargs["skip_rand"]
 
-        def parse_layer_type(
-            str_ranges, L=28, default=0
-        ):  # L by default is 28 because Qwen2VL has 28 decoder layers
-            # 0 is without layer token selection, 1 is with layer token selection. Below we provide examples:
-            # [1,28,1] means that all LM layers use token selection; [1,28,0] means that do not.
-            # Interleaved layer-wise '[2,2,1],[4,4,1],[6,6,1],[8,8,1],[10,10,1],[12,12,1],[14,14,1],[16,16,1],[18,18,1],[20,20,1],[22,22,1],[24,24,1],[26,26,1]'
-            result = [default] * L
-            matches = re.findall(r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]", str_ranges)
-            for start, end, value in matches:
-                start, end, value = int(start) - 1, int(end) - 1, int(value)
-                if end >= L:
-                    end = L - 1
-                result[start : end + 1] = [value] * (end - start + 1)
-            return result
-
         if "lm_skip_layer" in kwargs:
             config.lm_skip_layer = kwargs["lm_skip_layer"]
-        else:  # loading from Qwen2VL Config
-            lm_skip_layer_str = config.lm_skip_layer
-            config.lm_skip_layer = parse_layer_type(lm_skip_layer_str)
         if "lm_skip_ratio" in kwargs:
             config.lm_skip_ratio = kwargs["lm_skip_ratio"]
 
@@ -1831,10 +1904,10 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         if "vis_skip_fine" in kwargs:
             config.vision_config.vis_skip_fine = kwargs["vis_skip_fine"]
 
-        self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(
+        self.visual = ShowUIVisionTransformerPretrainedModel._from_config(
             config.vision_config
         )
-        self.model = Qwen2VLModel(config)
+        self.model = ShowUIModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.rope_deltas = None  # cache rope_deltas here
@@ -2058,7 +2131,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
 
     @add_start_docstrings_to_model_forward(QWEN2_VL_INPUTS_DOCSTRING)
     @replace_return_docstrings(
-        output_type=Qwen2VLCausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC
+        output_type=ShowUICausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC
     )
     def forward(
         self,
@@ -2083,7 +2156,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         patch_assign_sep: Optional[torch.LongTensor] = None,
         patch_pos: Optional[torch.LongTensor] = None,
         select_mask: Optional[torch.LongTensor] = None,
-    ) -> Union[Tuple, Qwen2VLCausalLMOutputWithPast]:
+    ) -> Union[Tuple, ShowUICausalLMOutputWithPast]:
         r"""
         Args:
             labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
@@ -2123,7 +2196,6 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "The image shows a street scene with a red stop sign in the foreground. In the background, there is a large red gate with Chinese characters ..."
         ```"""
-
         output_attentions = (
             output_attentions
             if output_attentions is not None
@@ -2140,9 +2212,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
 
         if inputs_embeds is None:
             inputs_embeds = self.model.embed_tokens(input_ids)
-            if (
-                pixel_values is not None
-            ):  # pixel_values : (seq_length, num_channels * image_size * image_size)
+            if pixel_values is not None:
                 pixel_values = pixel_values.type(self.visual.get_dtype())
                 image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
                 n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
@@ -2160,9 +2230,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                 image_embeds = image_embeds.to(
                     inputs_embeds.device, inputs_embeds.dtype
                 )
-                inputs_embeds = inputs_embeds.masked_scatter(
-                    image_mask, image_embeds
-                )  # replace the image_emb to inputs_embed
+                inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
             if pixel_values_videos is not None:
                 pixel_values_videos = pixel_values_videos.type(self.visual.get_dtype())
@@ -2215,7 +2283,10 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
                     delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
-
+        # start = torch.cuda.Event(enable_timing=True)
+        # end = torch.cuda.Event(enable_timing=True)
+        # torch.cuda.synchronize()
+        # start.record()
         outputs = self.model(
             input_ids=None,
             position_ids=position_ids,
@@ -2230,6 +2301,9 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             patch_pos=patch_pos,
             select_mask=select_mask,
         )
+        # end.record()
+        # torch.cuda.synchronize()
+        
 
         hidden_states = outputs[0]
         logits = self.lm_head(hidden_states)
@@ -2253,13 +2327,16 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             output = (logits,) + outputs[1:]
             return (loss,) + output if loss is not None else output
 
-        return Qwen2VLCausalLMOutputWithPast(
+        return ShowUICausalLMOutputWithPast(
             loss=loss,
             logits=logits,
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
             rope_deltas=self.rope_deltas,
+            # decoder_elaped_time=start.elapsed_time(end),
+            # ctx_len=select_mask.sum() if select_mask != None else -1,
+            # vis_len=n_image_tokens,
         )
 
     def prepare_inputs_for_generation(
