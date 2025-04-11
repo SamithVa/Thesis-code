@@ -1136,6 +1136,7 @@ class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         super().__init__(config)
         self.spatial_merge_size = config.spatial_merge_size
         self.retain_ratio = getattr(config, 'retain_ratio', 1)
+        self.vis_dir = getattr(config, 'vis_dir', None)
 
         self.patch_embed = PatchEmbed(
             patch_size=config.patch_size,
@@ -1217,7 +1218,7 @@ class Qwen2VLVisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
             else:
                 hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, position_embeddings=position_embeddings)
         merge = self.merger(hidden_states) # size : [# visual_tokens, hidden_size], e.g [150, 1536]
-        selected_mask = self_soft_matching_2d(metric = merge, r=self.retain_ratio)
+        selected_mask = self_soft_matching_2d(metric = merge, r=self.retain_ratio, vis_dir=self.vis_dir)
         return merge, selected_mask
 
 
@@ -1607,6 +1608,11 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         super().__init__(config)
         if "retain_ratio" in kwargs:
             setattr(config.vision_config, "retain_ratio", kwargs['retain_ratio'])
+        
+        if 'vis_dir' in kwargs:
+            setattr(config.vision_config, "vis_dir", kwargs['vis_dir']) # directory to save visualization of token similarity
+
+
         self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(config.vision_config)
         self.model = Qwen2VLModel(config)
         self.vocab_size = config.vocab_size
