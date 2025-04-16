@@ -65,9 +65,6 @@ pred_data = [item for sublist in pred_data for item in sublist]
 
 # Convert into DataFrame format
 df = pd.DataFrame(pred_data)
-# drop two column because they are the same as ref 
-
-
 
 # model responses "sentence" are in string format : parse string -> dict format
 df['sentence'] = df['sentence'].apply(lambda x: ast.literal_eval(x[0]))
