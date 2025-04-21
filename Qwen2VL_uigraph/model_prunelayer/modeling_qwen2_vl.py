@@ -1609,20 +1609,11 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                     select_mask,
                 )
             else:
-                if i != self.prune_layer:
-                    layer_outputs = decoder_layer(
-                        hidden_states,
-                        attention_mask=causal_mask,
-                        position_ids=position_ids,
-                        past_key_value=past_key_values,
-                        output_attentions=output_attentions,
-                        use_cache=use_cache,
-                        cache_position=cache_position,
-                        position_embeddings=position_embeddings,
-                        patch_pos=patch_pos,
-                        select_mask=select_mask,
-                    )
-                elif i == self.prune_layer and select_mask is not None:
+                if i == self.prune_layer and select_mask is not None:
+                    """
+                    select_mask is `None` after the first token generation (use cache)
+                    when cache is used we just want to pass forward through naive decoder 
+                    """
                     retain_mask = select_mask[0] 
                     hidden_states = hidden_states[:, retain_mask, :] # [bsz, seq_len, emb_dim]
                     position_ids = position_ids[:, :, retain_mask] # ?
@@ -1634,6 +1625,15 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                     adjusted_sin = sin[:, :, retain_mask]
                     position_embeddings = (adjusted_cos, adjusted_sin)
 
+                    # update causal_mask
+                    causal_mask = self._update_causal_mask(
+                        attention_mask=None, 
+                        input_tensor=hidden_states,
+                        cache_position=cache_position,
+                        past_key_values=past_key_values,
+                        output_attentions=output_attentions
+                    )
+
                     layer_outputs = decoder_layer(
                         hidden_states,
                         attention_mask=causal_mask,
@@ -1646,7 +1646,19 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                         patch_pos=patch_pos,
                         select_mask=select_mask,
                     )
-
+                else:
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=causal_mask,
+                        position_ids=position_ids,
+                        past_key_value=past_key_values,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                        cache_position=cache_position,
+                        position_embeddings=position_embeddings,
+                        patch_pos=patch_pos,
+                        select_mask=select_mask,
+                    )
 
             hidden_states = layer_outputs[0]
 
@@ -1920,22 +1932,9 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
 
     def __init__(self, config, **kwargs):
         super().__init__(config)
-        if "skip_rand" in kwargs:
-            config.skip_rand = kwargs["skip_rand"]
-            config.vision_config.skip_rand = kwargs["skip_rand"]
-
-        if "lm_skip_layer" in kwargs:
-            config.lm_skip_layer = kwargs["lm_skip_layer"]
-
-        if "lm_skip_ratio" in kwargs:
-            config.lm_skip_ratio = kwargs["lm_skip_ratio"]
-
-        if "vis_skip_layer" in kwargs:
-            config.vision_config.vis_skip_layer = kwargs["vis_skip_layer"]
-        if "vis_skip_ratio" in kwargs:
-            config.vision_config.vis_skip_ratio = kwargs["vis_skip_ratio"]
-        if "vis_skip_fine" in kwargs:
-            config.vision_config.vis_skip_fine = kwargs["vis_skip_fine"]
+        # if "skip_rand" in kwargs:
+        #     config.skip_rand = kwargs["skip_rand"]
+        #     config.vision_config.skip_rand = kwargs["skip_rand"]
 
         if "prune_layer" in kwargs:
             setattr(config, "prune_layer", kwargs["prune_layer"])
@@ -2254,6 +2253,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             ):  # pixel_values : (seq_length, num_channels * image_size * image_size)
                 pixel_values = pixel_values.type(self.visual.get_dtype())
                 image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+                # print(image_embeds.shape)
                 n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
                 n_image_features = image_embeds.shape[0]
                 if n_image_tokens != n_image_features:
