@@ -1,5 +1,4 @@
 from Qwen2VL_uigraph.model_prunelayer import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
-# from ShowUI.showui.processing_showui import ShowUIProcessor
 
 from qwen_vl_utils import process_vision_info
 import time, torch, re, argparse
@@ -17,8 +16,9 @@ if __name__ == "__main__":
     model_path = "/data/data1/syc/intern/wanshan/models/Qwen2-VL-7B-Instruct" # 7B
     device = "cuda"
 
-    # min_pixels = 256 * 28 * 28
-    # max_pixels = 1024 * 28 * 28
+    min_pixels = 256 * 28 * 28
+    max_pixels = 12800 * 28 * 28
+
     # 1. Screenshot -> Graph
     uigraph_train = True  # Enable ui graph during training
     uigraph_test = True  # Enable ui graph during inference
@@ -73,49 +73,14 @@ if __name__ == "__main__":
             ],
         }
     ]
-    
-    # warm up 
-    # warmup_iterations = 3
-
-    # processor = Qwen2VLProcessor.from_pretrained(
-    #         model_path,
-    #         min_pixels=min_pixels,
-    #         max_pixels=max_pixels,
-    #         uigraph_train=uigraph_train,
-    #         uigraph_test=uigraph_test,
-    #         uigraph_diff=uigraph_diff,
-    #         uigraph_rand=uigraph_rand,
-    #         uimask_pre=uimask_pre,
-    #         uimask_ratio=0,
-    #         uimask_rand=uimask_rand,
-    #     )
-
-    # text = processor.apply_chat_template(
-    #     messages, tokenize=False, add_generation_prompt=True
-    # )
-    # image_inputs, video_inputs = process_vision_info(messages)
-    # inputs = processor(
-    #     text=[text],
-    #     images=image_inputs,
-    #     videos=video_inputs,
-    #     padding=True,
-    #     return_tensors="pt",
-    # )
-    # inputs = inputs.to(device)
-    
-    # with torch.no_grad():
-    #     for i in range(warmup_iterations):
-    #         _ = model.generate(**inputs, max_new_tokens=200)
-    #         if torch.cuda.is_available():
-    #             torch.cuda.synchronize()
 
     ratios = [0, 0.2, 0.4, 0.6, 0.8, 1]
     for ratio in ratios:
         print("Ratio", ratio)
         processor = Qwen2VLProcessor.from_pretrained(
             model_path,
-            # min_pixels=min_pixels,
-            # max_pixels=max_pixels,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
             uigraph_train=uigraph_train,
             uigraph_test=uigraph_test,
             uigraph_diff=uigraph_diff,
@@ -153,31 +118,31 @@ if __name__ == "__main__":
         print("Number of Visual Tokens :", visual_tokens - dropped_visual_tokens)
         
         # Timed inference
-        # start_event = torch.cuda.Event(enable_timing=True)
-        # end_event = torch.cuda.Event(enable_timing=True)
-        # if torch.cuda.is_available():
-        #     torch.cuda.synchronize()
-        # times = []
-        # tps_all = []
-        # for i in range(5):
-        #     start_event.record()
-        #     with torch.no_grad():
-        #         generated_ids = model.generate(**inputs, max_new_tokens=1)
-        #     end_event.record()
-        #     elapsed_time = start_event.elapsed_time(end_event)
-        #     # print(f"\nElapsed Time {i+1} : {elapsed_time:.2f} ms")
-        #     times.append(elapsed_time)
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        times = []
+        tps_all = []
+        for i in range(5):
+            start_event.record()
+            with torch.no_grad():
+                generated_ids = model.generate(**inputs, max_new_tokens=1)
+            end_event.record()
+            elapsed_time = start_event.elapsed_time(end_event)
+            # print(f"\nElapsed Time {i+1} : {elapsed_time:.2f} ms")
+            times.append(elapsed_time)
 
-        #     # num_generated_tokens = generated_ids.shape[1] - inputs["input_ids"].shape[1]
+            num_generated_tokens = generated_ids.shape[1] - inputs["input_ids"].shape[1]
             
-        #     # tps = num_generated_tokens * 1000 / elapsed_time
-        #     # tps_all.append(tps)
-        #     # print(
-        #     #     f"Generated_tokens_num : {num_generated_tokens}, TPS : {tps}"
-        #     # )
+            tps = num_generated_tokens * 1000 / elapsed_time
+            tps_all.append(tps)
+            print(
+                f"Generated_tokens_num : {num_generated_tokens}, TPS : {tps}"
+            )
             
-        # torch.cuda.synchronize()
-        # print(f"Average Elapsed Time : ", sum(times) / len(times))
+        torch.cuda.synchronize()
+        print(f"Average Elapsed Time : ", sum(times) / len(times))
 
 
     # print("Average TPS:", sum(tps_all) / len(tps_all))

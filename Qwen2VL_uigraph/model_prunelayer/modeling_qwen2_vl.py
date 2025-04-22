@@ -1480,7 +1480,9 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.prune_layer = config.prune_layer # pruning
+        self.prune_layer = getattr(config, "prune_layer", None) # pruning
+        self.print_tflops = getattr(config, "print_tflops", False) # print tflops estimation
+        self.intermediate_size = getattr(config, "intermediate_size") # intermediate_size : m
 
         self.embed_tokens = nn.Embedding(
             config.vocab_size, config.hidden_size, self.padding_idx
@@ -1590,6 +1592,9 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
 
+        # flops 
+        flops = 0
+
         for i, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -1659,8 +1664,16 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                         patch_pos=patch_pos,
                         select_mask=select_mask,
                     )
-
+                
             hidden_states = layer_outputs[0]
+
+            # tflops estimation
+            if self.print_tflops:
+                n = hidden_states.shape[1] # seq_length 
+                d = hidden_states.shape[2] # emb_dim 
+                m = self.intermediate_size 
+                flops += 4 * n * d ** 2 + 2 * n ** 2 * d + 2 * n * d * m
+
 
             if use_cache:
                 next_decoder_cache = layer_outputs[2 if output_attentions else 1]
@@ -1668,8 +1681,12 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
+        # print tflop estimation 
+        if self.print_tflops:
+            print(f"FLOPs : {flops / 1e12} (T)")
+        
         hidden_states = self.norm(hidden_states)
-
+        
         # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
@@ -1938,6 +1955,9 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
 
         if "prune_layer" in kwargs:
             setattr(config, "prune_layer", kwargs["prune_layer"])
+        
+        if "print_tflops" in kwargs: # TFLOPs estimation
+            setattr(config, "print_tflops", True)
 
         self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(
             config.vision_config
