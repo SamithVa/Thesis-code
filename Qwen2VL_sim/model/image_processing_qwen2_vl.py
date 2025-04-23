@@ -396,11 +396,9 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
                 pixel_values.extend(patches)
                 vision_grid_thws.append(image_grid_thw)
                 if vis_dir is not None and select_mask is not None:
-                    image_vis = self.visualize_uigraph(
+                    image_vis = self.visualize_sim(
                         select_mask=select_mask,
-                        grid_thw=image_grid_thw,
                         image_size=image_resize,
-                        patch_size=self.patch_size * self.merge_size,
                         image = image,
                     )
                     image_vis.save(f"{vis_dir}/demo.png")
@@ -433,7 +431,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
 
         return BatchFeature(data=data, tensor_type=return_tensors)
     
-    def visualize_uigraph(self, select_mask, grid_thw, image_size, patch_size, image):
+    def visualize_sim(self, select_mask, image_size, image):
         """
         Visualize image according to a boolean patch selection mask.
         For patches where the mask is True, the original image is displayed.
@@ -448,36 +446,38 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         Returns:
             PIL.Image with the visualization.
         """
-        # reshape select_mask 1d -> 2d (h_half, w_half)
-        t, h, w = grid_thw 
-        h_half, w_half = h // self.merge_size, w // self.merge_size
-        select_mask = select_mask.reshape(h_half, w_half)
-
-        # Unpack the resized image dimensions.
         resized_height, resized_width = image_size[0]
+        patch_size = self.patch_size * self.merge_size
+
+        grid_h_half, grid_w_half = resized_height // patch_size, resized_width // patch_size
+        select_mask = select_mask.reshape(grid_h_half, grid_w_half)
 
         # Convert to numpy array if image is a PIL.Image.
         if isinstance(image, Image.Image):
-            image = np.array(image)
+            image = image.resize((resized_width, resized_height), Image.BILINEAR)
+            img_np = np.array(image)
 
-        # Convert image to HWC (height, width, channels) format if needed.
-        # Assume that if the first dimension is small (1 or 3), then the image is in CHW format.
-        if image.shape[0] in [1, 3]:
-            image = image.transpose(1, 2, 0)
+        # Assuming grayscale or RGB image
+        if img_np.ndim == 2:
+            img_np = np.stack([img_np]*3, axis=-1)
+        elif img_np.ndim == 3 and img_np.shape[2] == 1:
+            img_np = np.concatenate([img_np]*3, axis=2)
+        elif img_np.ndim != 3 or img_np.shape[2] not in (3, 4):
+            raise ValueError(f"Unexpected image shape: {img_np.shape}")
 
         # Upscale the boolean mask so that each patch is repeated patch_size times along both dimensions.
         # The select_mask is assumed to be of shape (n_patches_h, n_patches_w).
-        upscaled_mask = np.repeat(np.repeat(select_mask, patch_size, axis=0), patch_size, axis=1)
+        upscaled_mask = np.repeat(np.repeat(select_mask, patch_size * self.merge_size, axis=0), patch_size, axis=1)
         upscaled_mask = upscaled_mask[:resized_height, :resized_width]
 
         # Create a copy of the image to modify.
-        mod_image = image.copy()
+        mod_img = img_np.copy()
 
         # For pixels where the upscaled mask is False, assign a gray value (128) to all channels.
-        mod_image[~upscaled_mask] = 128
+        mod_img[~upscaled_mask] = 128
 
         # Convert back to a PIL.Image and return.
-        return Image.fromarray(mod_image)
+        return Image.fromarray(mod_img)
 
         # Convert back to PIL Image
         # return Image.fromarray(cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB))

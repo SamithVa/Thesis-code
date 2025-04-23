@@ -74,7 +74,7 @@ def self_soft_matching_2d(metric: torch.Tensor, r: float = 0.8, vis_dir = None):
     node_max, _ = scores.max(dim=-1)
     
     # Sort indices by similarity in descending order
-    edge_idx = node_max.argsort(dim=-1, descending=False)[..., None]
+    edge_idx = node_max.argsort(dim=-1, descending=True)[..., None]
     
     # Select unmerged tokens
     unm_idx = edge_idx[seq_len-num_retain_token:, :]

@@ -1932,6 +1932,9 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         if "print_tflops" in kwargs:
             setattr(config, "print_tflops", kwargs['print_tflops'])
 
+        # if "visualize_sim" in kwargs:
+        #     setattr(config, 'visualize_sim', kwargs['visualize_sim'])
+
         self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(
             config.vision_config
         )
