@@ -418,6 +418,7 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         ]
 
         if isinstance(image, Image.Image):
+            image = image.resize((resized_width, resized_height), Image.BILINEAR)
             image = np.array(image)
 
         # Assuming grayscale or RGB image
@@ -428,14 +429,17 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         else:
             raise ValueError("Unexpected image shape: {}".format(image.shape))
 
-        boundaries_image = mark_boundaries(
-            image, upscaled_uigraph_assign, color=(0.4, 1, 0.4)
-        )
-        boundaries_image = (boundaries_image * 255).astype(np.uint8)
+        # make green boundary lines for each UI components 
+        # boundaries_image = mark_boundaries(
+        #     image, upscaled_uigraph_assign, color=(0.4, 1, 0.4)
+        # )
+        # boundaries_image = (boundaries_image * 255).astype(np.uint8)
+
+
         # Create a mask for white patch dropping
         drop_mask = np.zeros_like(upscaled_uigraph_assign, dtype=bool)
         # Convert to OpenCV format (BGR)
-        annotated_image = cv2.cvtColor(boundaries_image, cv2.COLOR_RGB2BGR)
+        annotated_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
         unique_components = np.unique(patch_assign)
 
@@ -467,13 +471,13 @@ class Qwen2VLImageProcessor(BaseImageProcessor):
         image[drop_mask] = 128  # Set Gray Color Filled
 
         # Draw UI graph boundaries
-        boundaries_image = mark_boundaries(
-            image, upscaled_uigraph_assign, color=(0.4, 1, 0.4)
-        )
-        boundaries_image = (boundaries_image * 255).astype(np.uint8)
+        # boundaries_image = mark_boundaries(
+        #     image, upscaled_uigraph_assign, color=(0.4, 1, 0.4)
+        # )
+        # boundaries_image = (boundaries_image * 255).astype(np.uint8)
 
         # Convert to OpenCV format (BGR)
-        annotated_image = cv2.cvtColor(boundaries_image, cv2.COLOR_RGB2BGR)
+        annotated_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
         # put patch assign id in every patch
         # for comp_id in unique_components:

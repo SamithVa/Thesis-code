@@ -8,11 +8,11 @@ from qwen_vl_utils import process_vision_info
 # 1. Setup
 device      = 'cuda'
 model_path  = "/home/syc/intern/wanshan/Qwen2VL-Resampler-Finetune/output/resampler_7b_retain_ratio_1"
-min_pixels  = 256 * 28 * 28
-max_pixels  = 1280 * 28 * 28
+min_pixels  = 1344 * 28 * 28
+max_pixels  = 1680 * 28 * 28
 # vis_dir     = "./visualize_imgs"
 # os.makedirs(vis_dir, exist_ok=True)
-retain_ratio = 0.9
+retain_ratio = 0.8
 processor = Qwen2VLProcessor.from_pretrained(model_path, min_pixels=min_pixels, max_pixels=max_pixels)
 model = Qwen2VLForConditionalGeneration.from_pretrained(
     model_path,
@@ -23,11 +23,11 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
 )
 
 # 2. Load your JSON file
-with open("/home/syc/intern/wanshan/Thesis_result/ScreenSpot/Similarity/keep_uniques/screenspot_qwen2vl-7b_sim-layer_[1,28,1]-retain_ratio-0.9-mobile.json", "r") as f:
+with open("/home/syc/intern/wanshan/llm/Qwen2VL_sim/screenspot_qwen2vl-7b_sim_resol_min_1344_max_1680-prune_layer-14-retain_ratio-0.8-mobile.json", "r") as f:
     data = json.load(f)
 
 # 3. Iterate, run the model, collect mask, and attach it
-for inst in tqdm(data, desc="Generating select_masks"):
+for inst in tqdm(data[:100], desc="Generating select_masks"):
     # build messages for this instance
     messages = [{
         "role": "user",
