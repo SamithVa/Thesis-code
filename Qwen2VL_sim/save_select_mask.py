@@ -8,12 +8,11 @@ from qwen_vl_utils import process_vision_info
 # 1. Setup
 device      = 'cuda'
 model_path  = "/home/syc/intern/wanshan/Qwen2VL-Resampler-Finetune/output/resampler_7b_retain_ratio_1"
-min_pixels  = 1344 * 28 * 28
 max_pixels  = 1680 * 28 * 28
 # vis_dir     = "./visualize_imgs"
 # os.makedirs(vis_dir, exist_ok=True)
-retain_ratio = 0.8
-processor = Qwen2VLProcessor.from_pretrained(model_path, min_pixels=min_pixels, max_pixels=max_pixels)
+retain_ratio = 0.9418 # correspond to uimask_ratio = 0.9
+processor = Qwen2VLProcessor.from_pretrained(model_path, max_pixels=max_pixels)
 model = Qwen2VLForConditionalGeneration.from_pretrained(
     model_path,
     device_map=device,
@@ -22,8 +21,12 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
     retain_ratio=retain_ratio
 )
 
+model_response_path = "/home/syc/intern/wanshan/Qwen2-VL/agent_tasks/ScreenSpot/sim_prunelayer_0-04-25/screenspot_sim_qwen2vl-7b_max_pixels_1680-prune_layer-0-retain_ratio-0.9418-web.json"
+
+model_response_name = os.path.basename(model_response_path)
+
 # 2. Load your JSON file
-with open("/home/syc/intern/wanshan/llm/Qwen2VL_sim/screenspot_qwen2vl-7b_sim_resol_min_1344_max_1680-prune_layer-14-retain_ratio-0.8-mobile.json", "r") as f:
+with open(model_response_path, "r") as f:
     data = json.load(f)
 
 # 3. Iterate, run the model, collect mask, and attach it
@@ -63,7 +66,7 @@ for inst in tqdm(data[:100], desc="Generating select_masks"):
     inst["select_mask"] = select_mask.cpu().tolist()
 
 # 4. Write out a new JSON with masks embedded
-with open(f"data_with_masks-retain_ratio_{retain_ratio}.json", "w") as f:
+with open(model_response_name, "w") as f:
     json.dump(data, f, indent=2)
 
 print("All done ➜ data_with_masks.json created with a `select_mask` field in each instance.")

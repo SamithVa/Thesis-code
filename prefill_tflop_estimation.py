@@ -55,6 +55,7 @@ if __name__ == "__main__":
     max_pixels = 12800 * 28 * 28
 
     if args.uimask:
+        print("Testing UIGRAPH Inference Speed ...")
         from Qwen2VL_uigraph.model_prunelayer import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
 
         # 1. Screenshot -> Graph
@@ -77,12 +78,12 @@ if __name__ == "__main__":
             device_map=device,
             attn_implementation="flash_attention_2",
             prune_layer = 2 if args.uimask else None, # enable | disable uimask 
-            print_tflops = True # print total tflops at each token generation
+            print_tflops = False # print total tflops at each token generation
         )
         
        
 
-        ratios = [0, 0.2, 0.4, 0.6, 0.8, 1]
+        ratios = [0.2, 0.4, 0.6, 0.8, 1]
         for ratio in ratios:
             print("Ratio", ratio)
             processor = Qwen2VLProcessor.from_pretrained(
@@ -125,6 +126,7 @@ if __name__ == "__main__":
             
             print("Number of Visual Tokens :", visual_tokens - dropped_visual_tokens)
             
+
             # Timed inference
             start_event = torch.cuda.Event(enable_timing=True)
             end_event = torch.cuda.Event(enable_timing=True)
@@ -153,8 +155,9 @@ if __name__ == "__main__":
             print(f"Average Elapsed Time : ", sum(times) / len(times))
 
     elif args.sim:
+        print("Testing SIM Inference Speed ...")
         from Qwen2VL_sim.model_prunelayer import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
-        for retain_ratio in [1, 0.9, 0.8, 0.7, 0.6, 0.5]:
+        for retain_ratio in [0.915, 0.824, 0.740, 0.657, 0.582]:
 
             model = Qwen2VLForConditionalGeneration.from_pretrained(
                 model_path,
@@ -163,7 +166,7 @@ if __name__ == "__main__":
                 attn_implementation="flash_attention_2",
                 prune_layer = 2 if retain_ratio != 1 else None, # enable | disable uimask 
                 retain_ratio = retain_ratio,
-                print_tflops = True # print total tflops at each token generation
+                print_tflops = False # print total tflops at each token generation
             )
 
             processor = Qwen2VLProcessor.from_pretrained(
@@ -221,11 +224,68 @@ if __name__ == "__main__":
             del generated_ids
             torch.cuda.empty_cache()
 
+    else:
+        from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
+        print("Testing Naive Inference Speed ...")
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map=device,
+                attn_implementation="flash_attention_2",
+            )
+
+        processor = Qwen2VLProcessor.from_pretrained(
+            model_path, 
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+        )
+
+        text = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        )
+
+        inputs = inputs.to(device)
+        visual_tokens = inputs['pixel_values'].shape[0] // 4
+            
+        # Timed inference
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        times = []
+        tps_all = []
+        for i in range(5):
+            start_event.record()
+            with torch.no_grad():
+                generated_ids = model.generate(**inputs, max_new_tokens=1)
+            end_event.record()
+            elapsed_time = start_event.elapsed_time(end_event)
+            # print(f"\nElapsed Time {i+1} : {elapsed_time:.2f} ms")
+            times.append(elapsed_time)
+
+            num_generated_tokens = generated_ids.shape[1] - inputs["input_ids"].shape[1]
+            
+            tps = num_generated_tokens * 1000 / elapsed_time
+            tps_all.append(tps)
+            print(
+                f"Generated_tokens_num : {num_generated_tokens}, TPS : {tps}"
+            )
+            
+        torch.cuda.synchronize()
+        print(f"Average Elapsed Time : ", sum(times) / len(times))
+
 
 
 
             
-
 
         # print("Average TPS:", sum(tps_all) / len(tps_all))
         # elapsed_time = start_event.elapsed_time(end_event)

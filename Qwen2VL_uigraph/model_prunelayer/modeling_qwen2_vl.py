@@ -1957,7 +1957,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
             setattr(config, "prune_layer", kwargs["prune_layer"])
         
         if "print_tflops" in kwargs: # TFLOPs estimation
-            setattr(config, "print_tflops", True)
+            setattr(config, "print_tflops", kwargs["print_tflops"])
 
         self.visual = Qwen2VLVisionTransformerPretrainedModel._from_config(
             config.vision_config
