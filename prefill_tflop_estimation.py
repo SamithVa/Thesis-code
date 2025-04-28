@@ -56,14 +56,14 @@ if __name__ == "__main__":
     min_pixels = 256 * 28 * 28
     max_pixels = 12800 * 28 * 28
 
-    if args.uimask:
+    if args.uimask: # uimask prune layer
         print("Testing UIGRAPH Inference Speed ...")
         from Qwen2VL_uigraph.model_prunelayer import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
 
         # 1. Screenshot -> Graph
         uigraph_train = True  # Enable ui graph during training
         uigraph_test = True  # Enable ui graph during inference
-        uigraph_diff = 0.6  # Pixel difference used for constructing ui graph
+        uigraph_diff = 1  # Pixel difference used for constructing ui graph
         uigraph_rand = False  # Enable random graph construction
         # 2. Graph -> Mask
         uimask_pre = True  # Prebuild patch selection mask in the preprocessor (not in model layers) for efficiency
@@ -79,8 +79,8 @@ if __name__ == "__main__":
             torch_dtype=torch.bfloat16,
             device_map=device,
             attn_implementation="flash_attention_2",
-            prune_layer = 2 if args.uimask else None, # enable | disable uimask 
-            print_tflops = False # print total tflops at each token generation
+            prune_layer = 0 if args.uimask else None, # enable | disable uimask 
+            print_tflops = True # print total tflops at each token generation
         )
         
        
@@ -146,17 +146,17 @@ if __name__ == "__main__":
             torch.cuda.synchronize()
             print(f"Average Elapsed Time : ", sum(times) / len(times))
 
-    elif args.sim:
+    elif args.sim: # sim based
         print("Testing SIM Inference Speed ...")
         from Qwen2VL_sim.model_prunelayer import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
-        for retain_ratio in [0.915, 0.824, 0.740, 0.657, 0.582]:
+        for retain_ratio in [0.901, 0.792, 0.696, 0.603, 0.522]:
 
             model = Qwen2VLForConditionalGeneration.from_pretrained(
                 model_path,
                 torch_dtype=torch.bfloat16,
                 device_map=device,
                 attn_implementation="flash_attention_2",
-                prune_layer = 2 if retain_ratio != 1 else None, # enable | disable uimask 
+                prune_layer = 0 if retain_ratio != 1 else None, # enable | disable uimask 
                 retain_ratio = retain_ratio,
                 print_tflops = False # print total tflops at each token generation
             )
@@ -253,11 +253,11 @@ if __name__ == "__main__":
             model_path,
             torch_dtype=torch.bfloat16,
             device_map=device,
-            lm_skip_ratio=uimask_ratio, lm_skip_layer=lm_skip_layer,
+            lm_skip_ratio=0, lm_skip_layer=lm_skip_layer,
             attn_implementation="flash_attention_2",
         )
 
-        ratios = [0, 0.2, 0.4, 0.6, 0.8, 1]
+        ratios = [0.2, 0.4, 0.6, 0.8, 1]
         for ratio in ratios:
             processor = ShowUIProcessor.from_pretrained(
                 model_path, 
@@ -307,7 +307,7 @@ if __name__ == "__main__":
             torch.cuda.synchronize()
             print(f"Average Elapsed Time : ", sum(times) / len(times))
 
-    else:
+    else: # naive Qwen2VL
         from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
         print("Testing Naive Inference Speed ...")
         model = Qwen2VLForConditionalGeneration.from_pretrained(
