@@ -566,8 +566,8 @@ class Qwen2VLAttention(nn.Module):
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
-
-        query_states = self.q_proj(hidden_states)
+        # h_model : head_dim * num_heads
+        query_states = self.q_proj(hidden_states) # (n, head_dim), h
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
 
