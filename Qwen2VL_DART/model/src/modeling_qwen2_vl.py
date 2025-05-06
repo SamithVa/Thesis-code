@@ -561,7 +561,7 @@ class Qwen2VLAttention(nn.Module):
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
         query_states, key_states = apply_multimodal_rotary_pos_emb(
             query_states, key_states, cos, sin, position_ids, self.rope_scaling["mrope_section"]
-        )
+        ) # RoPE is only applied to q and k
 
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
@@ -923,7 +923,7 @@ class Qwen2VLDecoderLayer(nn.Module):
         if use_cache:
             outputs += (present_key_value,)
 
-        return outputs
+        return outputs # [hidden_states, self_attn_weights, present_key_value]
 
 
 QWEN2VL_START_DOCSTRING = r"""

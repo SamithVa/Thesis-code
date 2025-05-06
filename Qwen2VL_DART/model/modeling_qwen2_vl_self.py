@@ -411,7 +411,7 @@ class DART(Qwen2VLModel):
         image_token_start_index = DART_config['image_token_start_index']
         image_token_length = DART_config['image_token_length']
 
-        pivot_image_token = DART_config['pivot_image_token']
+        pivot_image_token = DART_config['pivot_image_token'] # number of visual pivot token : 4
         pivot_text_token = DART_config['pivot_text_token']
 
         reduction_ratio = DART_config['reduction_ratio']
